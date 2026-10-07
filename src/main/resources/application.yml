@@ -1,0 +1,111 @@
+spring:
+  application:
+    name: parcelpilot
+  profiles:
+    default: demo
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/parcelpilot}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+server:
+  error:
+    whitelabel:
+      enabled: false
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:parcelpilot-demo-secret-change-me-0123456789abcdef}
+    ttl-minutes: 720
+  otp:
+    sender: demo            # demo | sms ("sms" sends via Fast2SMS; set FAST2SMS_API_KEY)
+    ttl-minutes: 5
+    max-per-window: 3       # OTP requests allowed per phone per window
+    max-attempts: 5         # wrong-entry attempts per issued OTP
+    fast2sms-key: ${FAST2SMS_API_KEY:}
+    fast2sms-sender-id: ${FAST2SMS_SENDER_ID:}      # approved DLT header — without it the Quick SMS route bills ₹5/SMS
+    fast2sms-template-id: ${FAST2SMS_TEMPLATE_ID:}  # approved DLT OTP template ID
+  mail:
+    host: ${MAIL_HOST:imap.gmail.com}
+    user: ${MAIL_USER:}
+    password: ${MAIL_APP_PASSWORD:}
+    forward-to: ${MAIL_FORWARD_TO:}
+    poll-interval-ms: 120000
+  allowed-senders:
+    - amazon.in
+    - amazon.com
+    - flipkart.com
+    - ekartlogistics.com
+    - myntra.com
+    - nykaa.com
+    - ajio.com
+    - delhivery.com
+    - bluedart.com
+    - xpressbees.com
+    - shadowfax.in
+    - indiapost.gov.in
+  tracking:
+    provider: ${TRACKING_PROVIDER:mock}   # mock | ship24 | 17track
+    daily-budget: ${TRACKING_DAILY_BUDGET:200}
+  weather:
+    provider: ${WEATHER_PROVIDER:mock}    # mock | open-meteo
+    mock-mode: ${WEATHER_MOCK_MODE:stormy} # initial mode of the mock provider: stormy | clear
+    geocode-url: https://geocoding-api.open-meteo.com/v1/search
+    forecast-url: https://api.open-meteo.com/v1/forecast
+  refresh:
+    interval-ms: 14400000                 # every 4 hours
+  cleanup:
+    cron: "0 0 3 * * SUN"                 # weekly, Sunday 03:00
+    keep-delivered-days: 30
+  llm:
+    enabled: ${LLM_ENABLED:false}    # true only with ANTHROPIC_API_KEY set; rephrases text, never decides risk
+  risk:
+    heavy-rain-mm: 20
+    heavy-rain-points: 3
+    thunderstorm-codes: [95, 96, 99]
+    thunderstorm-points: 3
+    strong-wind-kmph: 40
+    strong-wind-points: 2
+    fog-visibility-km: 1
+    fog-points: 1
+    extreme-heat-c: 42
+    extreme-heat-points: 1
+  seed:
+    enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss} %-5level [%thread] %logger{20} : %msg%n"
+
+---
+# Demo profile (default): mock providers, fixed OTP, dev endpoints on
+spring:
+  config:
+    activate:
+      on-profile: demo
+app:
+  otp:
+    fixed: "123456"
+  seed:
+    enabled: true
+
+---
+# Prod-like profile: dev endpoints off, real OTP (random), real providers when keys given
+spring:
+  config:
+    activate:
+      on-profile: prod
+app:
+  otp:
+    fixed: ""
+  seed:
+    enabled: false

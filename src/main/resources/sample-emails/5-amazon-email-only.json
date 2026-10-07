@@ -1,0 +1,8 @@
+{
+  "name": "Amazon — email-only order (TBA number)",
+  "messageId": "sim-amazon-001",
+  "from": "shipment-tracking@amazon.in",
+  "to": "demoinbox+rahul55@gmail.com",
+  "subject": "Your order with Amazon.in has shipped",
+  "body": "<html><body><p>Hello Rahul,</p><p>Your order <b>#402-5684713-9912543</b> has shipped.</p><p>Tracking ID assigned by the carrier: TBA309812456000</p><p>Arriving: Sat, 10 Oct.</p><p>Note: Amazon carrier tracking works inside Amazon only; ParcelPilot follows this order through your emails.</p></body></html>"
+}

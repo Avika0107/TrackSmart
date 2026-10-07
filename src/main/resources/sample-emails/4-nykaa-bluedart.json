@@ -1,0 +1,8 @@
+{
+  "name": "Nykaa — shipped (Blue Dart)",
+  "messageId": "sim-nykaa-001",
+  "from": "orders@nykaa.com",
+  "to": "demoinbox+rahul55@gmail.com",
+  "subject": "Nykaa order shipped - Blue Dart AWB 5551234567",
+  "body": "<html><body><p>Hi there,</p><p>Your Nykaa order has been shipped!</p><p>Blue Dart airway bill number: <b>5551234567</b></p><p>Delivery expected by Thu, 8 Oct.</p></body></html>"
+}

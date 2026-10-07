@@ -1,0 +1,8 @@
+{
+  "name": "Flipkart — out for delivery (Ekart update)",
+  "messageId": "sim-flipkart-ofd-002",
+  "from": "shipment-tracking@flipkart.com",
+  "to": "demoinbox+rahul55@gmail.com",
+  "subject": "Out for delivery today - Order OD123456789012345",
+  "body": "<html><body><p>Your Flipkart order is out for delivery today.</p><p>Courier: Ekart Logistics, AWB FMP4471203.</p><p>The delivery agent will arrive between 10 AM and 6 PM.</p></body></html>"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Gmail — forwarding confirmation code",
+  "messageId": "sim-gmail-confirm-001",
+  "from": "forwarding-noreply@google.com",
+  "to": "parcel.pilot.demo.inbox@gmail.com",
+  "subject": "Gmail Forwarding Confirmation for parcel.pilot.demo.inbox@gmail.com",
+  "body": "<html><body><p>To allow parcel.pilot.demo.inbox@gmail.com to automatically forward mail to demoinbox+rahul55@gmail.com, please click the link below to verify your request:</p><p>https://mail.google.com/mail/vf-274b1ccf2e</p><p>Confirmation code: <b>482193675</b></p></body></html>"
+}

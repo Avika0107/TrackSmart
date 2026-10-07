@@ -1,0 +1,8 @@
+{
+  "name": "Unknown shop — not on allowlist (ignored)",
+  "messageId": "sim-unknown-001",
+  "from": "orders@randombazaar.in",
+  "to": "demoinbox+rahul55@gmail.com",
+  "subject": "Your order 771234567890 has shipped",
+  "body": "<html><body><p>Thanks for shopping with RandomBazaar!</p><p>Your tracking number is 771234567890. Delivery in 5-7 days.</p></body></html>"
+}

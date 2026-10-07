@@ -1,0 +1,8 @@
+{
+  "name": "Flipkart — shipped (Ekart)",
+  "messageId": "sim-flipkart-shipped-001",
+  "from": "shipment-tracking@flipkart.com",
+  "to": "demoinbox+rahul55@gmail.com",
+  "subject": "Your Flipkart order has shipped - FMP4471203",
+  "body": "<html><body><p>Hi Rahul,</p><p>Great news! Your order <b>OD123456789012345</b> has been shipped via <b>Ekart Logistics</b>.</p><p>Tracking number: <b>FMP4471203</b></p><p>Expected delivery by Wed, 7 Oct.</p><p>Thank you for shopping with Flipkart!</p></body></html>"
+}

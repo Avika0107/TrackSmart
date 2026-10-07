@@ -1,0 +1,26 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: parcelpilot-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  app:
+    build: .
+    container_name: parcelpilot-app
+    depends_on:
+      - mongo
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      MONGODB_URI: mongodb://mongo:27017/parcelpilot
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_APP_PASSWORD: ${MAIL_APP_PASSWORD:-}
+      SHIP24_API_KEY: ${SHIP24_API_KEY:-}
+      TRACK17_API_KEY: ${TRACK17_API_KEY:-}
+    ports:
+      - "8080:8080"
+
+volumes:
+  mongo-data:

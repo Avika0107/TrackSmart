@@ -1,0 +1,8 @@
+{
+  "name": "Myntra — in transit (Delhivery)",
+  "messageId": "sim-myntra-001",
+  "from": "noreply@myntra.com",
+  "to": "demoinbox+rahul55@gmail.com",
+  "subject": "Your Myntra order is on the way!",
+  "body": "<html><body><p>Hello!</p><p>Your Myntra order has been dispatched and is currently in transit.</p><p>Courier partner: Delhivery. Tracking ID: <b>11234567891</b></p><p>Estimated delivery: 8 Oct 2026.</p></body></html>"
+}
