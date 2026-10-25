@@ -9,6 +9,7 @@ import com.ekraah.dto.AuthDtos.ResetPasswordRequest;
 import com.ekraah.dto.AuthDtos.UserView;
 import com.ekraah.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,8 +52,10 @@ public class AuthController {
 
     @PostMapping("/login")
     @Operation(summary = "Log in with phone + password and get a JWT")
-    public AuthResponse login(@Valid @RequestBody LoginRequest body) {
-        var result = auth.login(body.phone(), body.password());
+    public AuthResponse login(@Valid @RequestBody LoginRequest body, HttpServletRequest request) {
+        // getRemoteAddr is the direct peer; behind a reverse proxy set
+        // server.forward-headers-strategy=native so it reflects X-Forwarded-For instead.
+        var result = auth.login(body.phone(), body.password(), request.getRemoteAddr());
         return new AuthResponse(result.token(), result.expiresIn(), UserView.of(result.user()));
     }
 

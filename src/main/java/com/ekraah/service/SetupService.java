@@ -39,6 +39,10 @@ public class SetupService {
     }
 
     public String forwardingAddressFor(User user) {
+        // Per-user inbound domain (webhook relay) when configured: ALIAS@domain, no shared inbox.
+        if (props.getInbound().enabled() && props.getInbound().hasDomain()) {
+            return user.getInboundAlias() + "@" + props.getInbound().getDomain().trim();
+        }
         String base = forwardToAddress();
         int at = base.indexOf('@');
         return at < 0 ? base + "+" + user.getInboundAlias() : base.substring(0, at) + "+" + user.getInboundAlias() + base.substring(at);

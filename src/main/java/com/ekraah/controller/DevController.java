@@ -62,7 +62,8 @@ public class DevController {
         RawEmail email = new RawEmail(
                 body.messageId() != null ? body.messageId() : "sim-" + System.nanoTime(),
                 body.from(), body.to(), body.to(), null, null,
-                body.subject() == null ? "" : body.subject(), body.body());
+                body.subject() == null ? "" : body.subject(), body.body(),
+                null, RawEmail.Channel.SIMULATED);   // demo profile only: no real sender to verify
         String outcome = processor.process(email);
         return Map.of("outcome", outcome);
     }

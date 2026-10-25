@@ -4,6 +4,7 @@ import com.ekraah.exception.ApiException;
 import com.ekraah.model.User;
 import com.ekraah.repository.UserRepository;
 import com.ekraah.security.JwtService;
+import com.ekraah.security.LoginThrottle;
 import com.ekraah.security.OtpService;
 import com.ekraah.util.Mask;
 import org.slf4j.Logger;
@@ -29,12 +30,17 @@ public class AuthService {
     private final JwtService jwt;
     private final UserRepository users;
     private final PasswordEncoder encoder;
+    private final InboundAliases aliases;
+    private final LoginThrottle throttle;
 
-    public AuthService(OtpService otp, JwtService jwt, UserRepository users, PasswordEncoder encoder) {
+    public AuthService(OtpService otp, JwtService jwt, UserRepository users, PasswordEncoder encoder,
+                       InboundAliases aliases, LoginThrottle throttle) {
         this.otp = otp;
         this.jwt = jwt;
         this.users = users;
         this.encoder = encoder;
+        this.aliases = aliases;
+        this.throttle = throttle;
     }
 
     /** Strips formatting; expects a 10-digit Indian number (accepts +91 / 91 prefixes). */
@@ -56,19 +62,35 @@ public class AuthService {
 
     /** Password login — verifying possession of the phone is not enough anymore. */
     public AuthResult login(String phone, String password) {
+        return login(phone, password, null);
+    }
+
+    /**
+     * Password login, throttled per phone and per client IP (LoginThrottle): unknown numbers and
+     * wrong passwords both count as failures and get the same message, so the lock can't be used
+     * to discover which numbers have accounts.
+     */
+    public AuthResult login(String phone, String password, String clientIp) {
         String normalized = normalizePhone(phone);
         if (password == null || password.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Password is required.");
         }
-        User user = users.findByPhone(normalized)
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect phone number or password."));
+        throttle.checkAllowed(normalized, clientIp);
+        User user = users.findByPhone(normalized).orElse(null);
+        if (user == null) {
+            throttle.recordFailure(normalized, clientIp);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect phone number or password.");
+        }
         if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "No password set for this number yet — use Create account to set one.");
         }
         if (!encoder.matches(password, user.getPasswordHash())) {
+            throttle.recordFailure(normalized, clientIp);
+            log.warn("Failed login for {}", Mask.phone(normalized));
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect phone number or password.");
         }
+        throttle.recordSuccess(normalized);
         return new AuthResult(jwt.issue(user.getId(), normalized), jwt.ttlSeconds(), user);
     }
 
@@ -115,21 +137,11 @@ public class AuthService {
     }
 
     private User provision(String phone) {
-        String alias = uniqueAlias(phone);
-        User user = User.of(phone, alias, "Shopper " + phone.substring(phone.length() - 4));
+        // Random, unguessable alias — never derived from the phone (see InboundAliases).
+        User user = User.of(phone, aliases.newUniqueAlias(), "Shopper " + phone.substring(phone.length() - 4));
         User saved = users.save(user);
-        log.info("Provisioned user {} with alias '{}'", phone.substring(0, 2) + "****" + phone.substring(6), alias);
+        log.info("Provisioned user {}", Mask.phone(phone));   // the alias is a secret: never logged
         return saved;
-    }
-
-    private String uniqueAlias(String phone) {
-        String base = "pp" + Integer.toHexString(phone.hashCode());
-        String candidate = base;
-        int suffix = 1;
-        while (users.findByInboundAlias(candidate).isPresent()) {
-            candidate = base + suffix++;
-        }
-        return candidate;
     }
 
     public Optional<User> findByPhone(String phone) {

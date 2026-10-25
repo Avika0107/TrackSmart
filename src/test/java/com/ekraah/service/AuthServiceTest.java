@@ -5,6 +5,7 @@ import com.ekraah.exception.ApiException;
 import com.ekraah.model.User;
 import com.ekraah.repository.UserRepository;
 import com.ekraah.security.JwtService;
+import com.ekraah.security.LoginThrottle;
 import com.ekraah.security.OtpService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class AuthServiceTest {
     private OtpService otpService;
     private UserRepository users;
     private PasswordEncoder encoder;
+    private LoginThrottle throttle;
 
     @BeforeEach
     void setUp() {
@@ -43,7 +45,9 @@ class AuthServiceTest {
         otpService = new OtpService((phone, otp) -> { /* no-op test sender */ }, encoder, props);
         JwtService jwt = new JwtService(props);
         users = mock(UserRepository.class);
-        service = new AuthService(otpService, jwt, users, encoder);
+        when(users.findByInboundAlias(any())).thenReturn(Optional.empty());
+        throttle = new LoginThrottle();
+        service = new AuthService(otpService, jwt, users, encoder, new InboundAliases(users), throttle);
     }
 
     private User userWithPassword() {
@@ -118,6 +122,9 @@ class AuthServiceTest {
         assertThat(result.user().getPasswordHash()).isNotBlank();
         assertThat(result.user().getPasswordHash()).isNotEqualTo(PASSWORD);   // stored hashed
         assertThat(encoder.matches(PASSWORD, result.user().getPasswordHash())).isTrue();
+        // Random and unguessable — never derived from the phone number (it was "pp" + hex(hashCode)).
+        assertThat(result.user().getInboundAlias()).matches("[a-z2-9]{12}")
+                .doesNotContain(Integer.toHexString(PHONE.hashCode()));
     }
 
     @Test
@@ -185,5 +192,50 @@ class AuthServiceTest {
                 .hasMessageContaining("No account found")
                 .extracting(e -> ((ApiException) e).getStatus())
                 .isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
+    }
+
+    // ---- brute-force throttle --------------------------------------------------
+
+    @Test
+    void fiveWrongPasswordsLockTheNumberEvenForTheRightPassword() {
+        when(users.findByPhone(PHONE)).thenReturn(Optional.of(userWithPassword()));
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> service.login(PHONE, "wrong-guess", "10.0.0.1"))
+                    .extracting(e -> ((ApiException) e).getStatus())
+                    .isEqualTo(org.springframework.http.HttpStatus.UNAUTHORIZED);
+        }
+        // Locked: the correct password is refused too, so the lock can't confirm a guess.
+        assertThatThrownBy(() -> service.login(PHONE, PASSWORD, "10.0.0.2"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("Too many failed attempts")
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
+    }
+
+    @Test
+    void successfulLoginResetsThePhoneCounter() {
+        when(users.findByPhone(PHONE)).thenReturn(Optional.of(userWithPassword()));
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> service.login(PHONE, "wrong-guess", "10.0.0.1")).isInstanceOf(ApiException.class);
+        }
+        assertThat(service.login(PHONE, PASSWORD, "10.0.0.1").token()).isNotBlank();
+        // The counter restarted, so one more mistake doesn't lock the account.
+        assertThatThrownBy(() -> service.login(PHONE, "wrong-guess", "10.0.0.1"))
+                .extracting(e -> ((ApiException) e).getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void oneIpTryingManyNumbersIsLocked() {
+        when(users.findByPhone(any())).thenReturn(Optional.empty());
+        for (int i = 0; i < 20; i++) {
+            String phone = "98765" + String.format("%05d", i);
+            assertThatThrownBy(() -> service.login(phone, "guess", "203.0.113.9")).isInstanceOf(ApiException.class);
+        }
+        assertThatThrownBy(() -> service.login("9123456789", "guess", "203.0.113.9"))
+                .hasMessageContaining("Too many failed attempts");
+        // Another client is unaffected.
+        assertThatThrownBy(() -> service.login("9123456789", "guess", "198.51.100.7"))
+                .hasMessageContaining("Incorrect phone number or password");
     }
 }

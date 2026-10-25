@@ -25,11 +25,28 @@ public class UserService {
     private final UserRepository users;
     private final OrderRepository orders;
     private final AuditService audit;
+    private final InboundAliases aliases;
 
-    public UserService(UserRepository users, OrderRepository orders, AuditService audit) {
+    public UserService(UserRepository users, OrderRepository orders, AuditService audit, InboundAliases aliases) {
         this.users = users;
         this.orders = orders;
         this.audit = audit;
+        this.aliases = aliases;
+    }
+
+    /**
+     * Replaces the inbound alias with a new random one: for accounts whose alias was derived from
+     * the phone number (before InboundAliases) or whose address leaked. The old address stops
+     * working at once, so forwarding must be set up again (forwardingVerified resets).
+     */
+    public User regenerateAlias(String userId) {
+        User user = get(userId);
+        user.setInboundAlias(aliases.newUniqueAlias());
+        user.setForwardingVerified(false);
+        users.save(user);
+        audit.record(userId, null, com.ekraah.model.AuditAction.PROCESSED,
+                "Forwarding address replaced — the old address no longer adds orders");
+        return user;
     }
 
     public User get(String userId) {

@@ -40,6 +40,12 @@ app:
     password: ${MAIL_APP_PASSWORD:}
     forward-to: ${MAIL_FORWARD_TO:}
     poll-interval-ms: 120000
+    require-sender-auth: ${MAIL_REQUIRE_SENDER_AUTH:true}   # DKIM/DMARC must pass for the From domain
+    trusted-authserv-id: mx.google.com                      # Gmail's Authentication-Results is trusted
+  inbound:                                                  # per-user addresses via signed webhook
+    secret: ${INBOUND_WEBHOOK_SECRET:}                      # blank = webhook disabled
+    domain: ${INBOUND_EMAIL_DOMAIN:}                        # e.g. in.ekraah.app -> ALIAS@in.ekraah.app
+    trusted-authserv-id: ${INBOUND_TRUSTED_AUTHSERV_ID:}    # authserv-id the relay puts in authenticationResults
   allowed-senders:
     - amazon.in
     - amazon.com

@@ -64,7 +64,30 @@ export function renderSetup() {
         "This is your personal EkRaah address. Emails forwarded here become live order cards."),
       el("div", { class: "copy-row" }, input, btn),
       el("p", { style: "font-size:12.5px;color:var(--text-soft)" },
-        `Your alias: ${info.alias} — keep it private, anyone who knows it can add orders to your dashboard.`));
+        `Your alias: ${info.alias} — keep it private, anyone who knows it can add orders to your dashboard.`),
+      regenerateButton());
+  }
+
+  /** New random address; two clicks, because the old address stops working immediately. */
+  function regenerateButton() {
+    const btn = el("button", { class: "btn ghost small", style: "margin-top:6px" }, "🔄 Get a new address");
+    let armed = null;
+    btn.addEventListener("click", async () => {
+      if (!armed) {
+        btn.textContent = "Click again — your old address will stop working";
+        armed = setTimeout(() => { armed = null; btn.textContent = "🔄 Get a new address"; }, 4000);
+        return;
+      }
+      clearTimeout(armed); armed = null;
+      btn.disabled = true;
+      try {
+        await api("/me/alias", { method: "POST" });
+        toast("New address ready — update your Gmail forwarding to it", "ok");
+        step = 0;
+        await refreshInfo();
+      } catch (e) { toast(e.message, "err"); btn.disabled = false; }
+    });
+    return btn;
   }
 
   function gmailStep() {

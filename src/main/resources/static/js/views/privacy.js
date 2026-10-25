@@ -46,6 +46,7 @@ function humanAction(action) {
   return {
     PROCESSED: "Processed",
     IGNORED_NOT_ALLOWED_SENDER: "Ignored (sender not allowed)",
+    IGNORED_UNVERIFIED_SENDER: "Ignored (sender not verified)",
     IGNORED_NO_TRACKING: "Ignored (no tracking)",
     DUPLICATE: "Duplicate",
     ERROR: "Error",
