@@ -92,6 +92,8 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 | `SPRING_PROFILES_ACTIVE` | `demo` (default) or `prod` |
 | `MAIL_USER` / `MAIL_APP_PASSWORD` | Gmail address + **App Password** of the shared demo inbox for real IMAP polling |
 | `MAIL_FORWARD_TO` | Forwarding address shown on the Setup page |
+| `MAIL_REQUIRE_SENDER_AUTH` | `true` (default): mail is only accepted when DKIM/DMARC confirms the retailer sent it |
+| `INBOUND_WEBHOOK_SECRET` / `INBOUND_EMAIL_DOMAIN` / `INBOUND_TRUSTED_AUTHSERV_ID` | Per-user addresses (`ALIAS@domain`) via a signed email relay instead of the shared Gmail inbox — see [`inbound/README.md`](inbound/README.md) |
 | `SHIP24_API_KEY` | Real tracking via Ship24 (free tier: 10 shipments/month, key on signup) |
 | `TRACK17_API_KEY` | Real tracking via 17TRACK (new accounts: one-time 200 free numbers) |
 | `WEATHER_PROVIDER` | `mock` (default) or `open-meteo` |
@@ -111,10 +113,12 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 
 | Method + path | Purpose |
 |---|---|
-| `POST /auth/login` | Phone + password login (BCrypt hashes; demo user `9999999999` / `demo1234`) |
+| `POST /auth/login` | Phone + password login (BCrypt hashes; demo user `9999999999` / `demo1234`). 5 failed attempts per number or 20 per IP lock login for 15 min (429) |
 | `POST /auth/request-otp`, `POST /auth/register` | Signup / first password: OTP `123456` in demo, rate-limited |
 | `POST /auth/reset-password` | Forgot password: phone + OTP + new password (no JWT issued) |
 | `GET /me`, `PATCH /me/settings`, `DELETE /me` | Profile, theme/notifications, full data deletion |
+| `POST /me/alias` | Replace my private forwarding address with a new random one (old one stops working) |
+| `POST /inbound/email` | Email relay webhook — HMAC-signed, not JWT; off unless `INBOUND_WEBHOOK_SECRET` is set |
 | `GET /orders?status=&platform=&q=&sort=` | Dashboard list (auto-recomputes stale risk >1 h) |
 | `GET /orders/{id}`, `POST /orders`, `DELETE /orders/{id}`, `POST /orders/{id}/refresh` | Detail (+weather), add by number, delete, force refresh |
 | `POST /orders/import` | Browser extension import: `{platform, trackingNumber?, courierHint?, retailerOrderId?, status?, expectedDelivery?, deliveredOn?}` → `{outcome: CREATED \| UPDATED \| ALREADY_TRACKED, order}` |
@@ -174,12 +178,14 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 - **Stored**: courier, tracking number, status, city, ETA/dates, event timeline, risk assessment, masked audit summaries.
 - **Never stored**: raw email text, item names, prices, addresses. The parser mines facts and the body is dropped immediately.
 - Non-allowlisted senders are **never parsed** — only a domain lands in the audit log.
+- **Forged senders are rejected**: the From header is forgeable, so mail is only processed when the receiving server's `Authentication-Results` (Gmail's, or the relay's) shows DKIM/DMARC pass for that retailer's domain.
+- **Aliases are random** (12 characters) and can be regenerated from the Setup page; they used to be derived from the phone number, so anyone knowing it could push orders into that dashboard.
 - Logs mask phone numbers (`98****3210`) and tracking numbers (`****3456`).
 - `DELETE /me` removes the user, all orders and the audit log (one click in the UI).
 
 ## Assumptions & honest limitations
 
-- **One shared demo inbox** — anyone with the Gmail credentials sees the inbox; aliases only partition EkRaah's data. Production would use per-user inboxes or inbound-email webhooks.
+- **One shared demo inbox** (IMAP mode) — anyone with the Gmail credentials sees the inbox; aliases only partition EkRaah's data. For production use the signed inbound webhook (`inbound/`), which gives every user their own address and has no mailbox password.
 - **AWB heuristics overlap** (Delhivery 10–18 digits vs Blue Dart 10 vs Xpressbees 12–15) — the sender-domain hint breaks ties; unknown formats are still tracked by carriers' auto-detect.
 - **Rule-based risk, not ML** — thresholds are configuration, visible in the UI; no accuracy metric is claimed or implied.
 - **Open-Meteo is free for non-commercial use only** — fine for a college project; budget for a commercial license in production.
@@ -190,7 +196,7 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 ## Testing
 
 ```bash
-./mvnw test                                        # backend: 107 tests
+./mvnw test                                        # backend: 126 tests
 osascript -l JavaScript extension/test/extract.test.js   # extension page reading (macOS, no Node needed)
 node extension/test/extract.test.js                # …or with Node
 ```

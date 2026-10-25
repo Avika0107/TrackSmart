@@ -14,6 +14,7 @@ public class AppProperties {
     private final Jwt jwt = new Jwt();
     private final Otp otp = new Otp();
     private final Mail mail = new Mail();
+    private final Inbound inbound = new Inbound();
     private final Tracking tracking = new Tracking();
     private final Weather weather = new Weather();
     private final Refresh refresh = new Refresh();
@@ -25,6 +26,7 @@ public class AppProperties {
     public Jwt getJwt() { return jwt; }
     public Otp getOtp() { return otp; }
     public Mail getMail() { return mail; }
+    public Inbound getInbound() { return inbound; }
     public Tracking getTracking() { return tracking; }
     public Weather getWeather() { return weather; }
     public Refresh getRefresh() { return refresh; }
@@ -76,6 +78,14 @@ public class AppProperties {
         private String password;
         private String forwardTo;
         private long pollIntervalMs = 120_000;
+        /** Reject mail whose sender isn't verified by DKIM/DMARC (SenderAuth). Off only for local experiments. */
+        private boolean requireSenderAuth = true;
+        /** authserv-id of the IMAP mailbox's receiving server, whose Authentication-Results is trusted. */
+        private String trustedAuthservId = "mx.google.com";
+        public boolean isRequireSenderAuth() { return requireSenderAuth; }
+        public void setRequireSenderAuth(boolean requireSenderAuth) { this.requireSenderAuth = requireSenderAuth; }
+        public String getTrustedAuthservId() { return trustedAuthservId; }
+        public void setTrustedAuthservId(String trustedAuthservId) { this.trustedAuthservId = trustedAuthservId; }
         public String getHost() { return host; }
         public void setHost(String host) { this.host = host; }
         public String getUser() { return user; }
@@ -87,6 +97,27 @@ public class AppProperties {
         public long getPollIntervalMs() { return pollIntervalMs; }
         public void setPollIntervalMs(long pollIntervalMs) { this.pollIntervalMs = pollIntervalMs; }
         public boolean configured() { return user != null && !user.isBlank() && password != null && !password.isBlank(); }
+    }
+
+    /**
+     * Per-user inbound email via an HMAC-signed webhook (InboundController), replacing the shared
+     * Gmail inbox: each user gets ALIAS@domain, and nobody holds a mailbox password.
+     */
+    public static class Inbound {
+        private String secret;              // shared with the email relay; blank = webhook disabled
+        private String domain;              // e.g. in.ekraah.app -> ALIAS@in.ekraah.app
+        private String trustedAuthservId;   // authserv-id the relay writes into authenticationResults
+        private long maxSkewSeconds = 300;
+        public String getSecret() { return secret; }
+        public void setSecret(String secret) { this.secret = secret; }
+        public String getDomain() { return domain; }
+        public void setDomain(String domain) { this.domain = domain; }
+        public String getTrustedAuthservId() { return trustedAuthservId; }
+        public void setTrustedAuthservId(String trustedAuthservId) { this.trustedAuthservId = trustedAuthservId; }
+        public long getMaxSkewSeconds() { return maxSkewSeconds; }
+        public void setMaxSkewSeconds(long maxSkewSeconds) { this.maxSkewSeconds = maxSkewSeconds; }
+        public boolean enabled() { return secret != null && !secret.isBlank(); }
+        public boolean hasDomain() { return domain != null && !domain.isBlank(); }
     }
 
     public static class Tracking {

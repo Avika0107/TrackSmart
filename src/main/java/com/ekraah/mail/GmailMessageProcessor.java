@@ -48,8 +48,14 @@ public class GmailMessageProcessor {
     public String process(RawEmail email) {
         String domain = domainOf(email.from());
         try {
-            // 1. Gmail forwarding-confirmation emails complete the user's setup.
+            // 1. Gmail forwarding-confirmation emails complete the user's setup. Verified too:
+            //    a forged one could plant a confirmation code on the Setup page.
             if (MimeUtils.isGmailForwardingConfirmation(email.from())) {
+                if (!senderVerified(email, domain)) {
+                    audit.record(null, domain, AuditAction.IGNORED_UNVERIFIED_SENDER,
+                            "Forwarding confirmation not verified as sent by Google");
+                    return "UNVERIFIED_SENDER";
+                }
                 String code = MimeUtils.confirmationCode(email.subject(), email.body());
                 if (code != null) {
                     setup.saveForwardingCode(code);
@@ -78,6 +84,14 @@ public class GmailMessageProcessor {
                 return "IGNORED_SENDER";
             }
 
+            // 3b. The From header is forgeable: the receiving server must confirm (DKIM/DMARC)
+            //     that the mail really comes from that retailer, or it could inject fake orders.
+            if (!senderVerified(email, domain)) {
+                audit.record(user.getId(), domain, AuditAction.IGNORED_UNVERIFIED_SENDER,
+                        "Sender could not be verified (DKIM/DMARC) — possible forgery");
+                return "UNVERIFIED_SENDER";
+            }
+
             // 4. Parse: HTML -> text (jsoup), extract facts, discard the body immediately.
             String text = looksLikeHtml(email.body()) ? Jsoup.parse(email.body()).text() : email.body();
             Optional<ParsedEmail> parsed = parser.parse(email.from(), email.subject(), text);
@@ -95,6 +109,15 @@ public class GmailMessageProcessor {
             audit.record(null, domain, AuditAction.ERROR, "Processing error");
             return "ERROR";
         }
+    }
+
+    /** Simulated (demo) mail skips the check; real mail must carry a trusted pass verdict. */
+    private boolean senderVerified(RawEmail email, String domain) {
+        if (!props.getMail().isRequireSenderAuth() || email.channel() == RawEmail.Channel.SIMULATED) return true;
+        String trusted = email.channel() == RawEmail.Channel.IMAP ? props.getMail().getTrustedAuthservId()
+                : email.channel() == RawEmail.Channel.WEBHOOK ? props.getInbound().getTrustedAuthservId()
+                : null;   // unknown origin: never trusted
+        return SenderAuth.verified(email.authResults(), domain, trusted);
     }
 
     private boolean allowed(String domain) {

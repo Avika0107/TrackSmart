@@ -22,7 +22,11 @@ public final class MimeUtils {
                 header(message, "X-Original-To"),
                 header(message, "X-Forwarded-To"),
                 message.getSubject(),
-                bodyText(message));
+                bodyText(message),
+                // getHeader returns headers top-down: [0] is what the receiving server (Gmail)
+                // prepended; anything below could have been written by the sender.
+                header(message, "Authentication-Results"),
+                RawEmail.Channel.IMAP);
     }
 
     private static String header(Message m, String name) {
@@ -64,7 +68,7 @@ public final class MimeUtils {
         try {
             return toRawEmail(message);
         } catch (Exception e) {
-            return new RawEmail(null, null, null, null, null, null, null, "");
+            return new RawEmail(null, null, null, null, null, null, null, "", null, RawEmail.Channel.IMAP);
         }
     }
 
