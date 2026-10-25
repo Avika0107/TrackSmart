@@ -1,3 +1,4 @@
 package com.ekraah.model;
 
-public enum OrderSource { EMAIL, MANUAL }
+/** EXTENSION = imported by the browser extension from a retailer's order page. */
+public enum OrderSource { EMAIL, MANUAL, EXTENSION }

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EkRaah</title>
+  <style>
+    /* Same tokens as static/css/styles.css so the popup looks like the dashboard. */
+    :root {
+      --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+      --radius-sm: 12px;
+      --bg: #0e1220;
+      --card: #171e33;
+      --border: rgba(255, 255, 255, 0.09);
+      --text: #eef1fa;
+      --text-soft: #9aa3c0;
+      --accent: #6c7bff;
+      --low: #2fbf71; --low-bg: rgba(47, 191, 113, .13);
+      --high: #f4544c; --high-bg: rgba(244, 84, 76, .15);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f3f5fb;
+        --card: #ffffff;
+        --border: rgba(20, 26, 60, 0.1);
+        --text: #171d33;
+        --text-soft: #5d6584;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      width: 320px; margin: 0; padding: 16px;
+      font: 14px/1.45 var(--font);
+      background: var(--bg); color: var(--text);
+    }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    h1 { font-size: 16px; margin: 0; }
+    .muted { color: var(--text-soft); font-size: 12px; }
+
+    form, .panel { display: grid; gap: 10px; }
+    label { display: grid; gap: 4px; font-size: 12px; color: var(--text-soft); }
+    input {
+      padding: 9px 11px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--card); color: var(--text); font: inherit;
+    }
+    button {
+      padding: 10px 12px; border: 0; border-radius: var(--radius-sm);
+      background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: progress; }
+    button.link { background: none; color: var(--text-soft); padding: 0; font-weight: 400; text-decoration: underline; }
+
+    .result { padding: 10px 12px; border-radius: var(--radius-sm); font-size: 13px; }
+    .result.ok { background: var(--low-bg); color: var(--low); }
+    .result.err { background: var(--high-bg); color: var(--high); }
+    .result dl { margin: 6px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; color: var(--text); }
+    .result dt { color: var(--text-soft); }
+    .result dd { margin: 0; }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📦 EkRaah</h1>
+    <button id="logout" class="link" type="button" hidden>Log out</button>
+  </header>
+
+  <!-- Shown when there's no valid token in chrome.storage.local -->
+  <form id="login-view" hidden>
+    <p class="muted">Log in with your EkRaah account to send orders to your dashboard.</p>
+    <label>Phone number
+      <input id="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="98xxxxxx10" required>
+    </label>
+    <label>Password
+      <input id="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button id="login-btn" type="submit">Log in</button>
+  </form>
+
+  <!-- Shown when logged in -->
+  <section id="send-view" class="panel" hidden>
+    <p class="muted">Signed in as <strong id="who"></strong>.<br>
+      Open an order's details page, then send it. Only the tracking number, courier and order id are shared.</p>
+    <button id="send-btn" type="button">Send this order to EkRaah</button>
+  </section>
+
+  <!-- Success / error message from the last action (role=status so screen readers announce it) -->
+  <div id="result" class="result" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
+
+<!--
+- No inline <script>: MV3 extension pages forbid inline JS (CSP script-src 'self'), so all
+  logic lives in popup.js. Inline <style> is allowed.
+- Colours copy the :root tokens from static/css/styles.css; prefers-color-scheme switches to
+  the light set, since the popup can't read the dashboard's theme setting.
+- Three regions toggled via the `hidden` attribute by popup.js: login-view, send-view, result.
+- The login form is a real <form> so Enter submits it and the browser can offer saved passwords
+  (autocomplete="tel" / "current-password").
+- The privacy line in send-view states exactly what extract.js sends — keep them in sync.
+- #result uses aria-live so "Order added" / errors are announced without moving focus.
+-->

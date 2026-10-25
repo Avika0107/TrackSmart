@@ -115,6 +115,7 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 | `GET /me`, `PATCH /me/settings`, `DELETE /me` | Profile, theme/notifications, full data deletion |
 | `GET /orders?status=&platform=&q=&sort=` | Dashboard list (auto-recomputes stale risk >1 h) |
 | `GET /orders/{id}`, `POST /orders`, `DELETE /orders/{id}`, `POST /orders/{id}/refresh` | Detail (+weather), add by number, delete, force refresh |
+| `POST /orders/import` | Browser extension import: `{platform, trackingNumber, courierHint?, retailerOrderId?}` → `{outcome: CREATED \| UPDATED \| ALREADY_TRACKED, order}` |
 | `GET /orders/detect-courier?number=` | Courier auto-detection |
 | `GET /setup/info` | Alias, forwarding address, Gmail code, verification status |
 | `GET /setup/gmail-filter.xml` | Downloadable Gmail filter (allowlist pre-filled) |
@@ -140,6 +141,23 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 3. Gmail → Settings → Forwarding → add that address → Gmail sends a confirmation mail; the poller extracts the **confirmation code** and shows it on the Setup page automatically.
 4. Download **`/api/setup/gmail-filter.xml`** and import it in Gmail → Settings → Filters (it forwards only allowlisted retailer domains).
 5. The Setup stepper flips to green when the first order email arrives. Every user is free to register their own alias against the same inbox.
+
+## Browser extension (orders whose emails carry no tracking number)
+
+Some retailers never email or SMS the AWB, but show it on the order details page. The extension in `extension/` (Manifest V3, Chrome/Edge) reads it from the page the user is already logged into — on click only.
+
+```
+order details page ──click icon──▶ content/extract.js (on-device: AWB, courier, order id)
+                                          │  facts only — never the page
+                                          ▼
+                     background.js ──POST /api/orders/import (JWT)──▶ OrderService.importFromExtension
+```
+
+- **Load it:** `chrome://extensions` → Developer mode → *Load unpacked* → select `extension/`. Log in with your EkRaah phone + password in the popup.
+- **Permissions:** `activeTab` + `scripting` (the clicked tab only, nothing runs in the background on retailer sites), `storage` (JWT). `host_permissions` lists only the backend (`http://localhost:8080` — change for deployment).
+- **Per-site rules** live in `extension/content/retailers.js` (order-page URLs, labels like "Tracking ID"/"AWB", courier names). When a retailer changes its page, that's the only file to update. AWB formats there must mirror `CourierDetector`.
+- **Server side** re-validates the number with `CourierDetector`, is idempotent (same AWB → `ALREADY_TRACKED`), merges into an `EMAIL_PENDING` card of the same platform, keeps Amazon TBA ids `EMAIL_ONLY`, and writes an audit entry. The page's courier name only breaks ties between digit-only couriers.
+- **Limits:** desktop browsers only (Chrome on Android has no extensions); order-page URL patterns are best-effort and need checking against real accounts; multi-package orders import the first tracking number shown.
 
 ## Privacy design
 

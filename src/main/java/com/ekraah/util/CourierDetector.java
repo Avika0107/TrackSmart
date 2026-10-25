@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
  * Assumptions (documented in README):
  *  - Amazon internal numbers start with TBA (or a 171-…-… order id) and are never
  *    sent to third-party tracking APIs (EMAIL_ONLY mode).
- *  - Ekart (Flipkart) numbers start with FMP; Shadowfax with SF; India Post is
+ *  - Ekart (Flipkart) numbers start with FMP (also FMPC/FMPP); Shadowfax with SF; India Post is
  *    13 chars ending in IN.
  *  - Delhivery 10-18 digits, Blue Dart 10 digits, Xpressbees 12-15 digits overlap,
  *    so the sender domain hint (delhivery.com vs xpressbees.com) breaks ties.
@@ -26,7 +26,7 @@ public final class CourierDetector {
 
     static {
         BY_PREFIX.put("Amazon", Pattern.compile("^(TBA\\d{9,15}|\\d{3}-\\d{7}-\\d{7})$"));
-        BY_PREFIX.put("Ekart", Pattern.compile("^FMP\\d{6,12}$"));
+        BY_PREFIX.put("Ekart", Pattern.compile("^FMP[CP]?\\d{6,12}$"));
         BY_PREFIX.put("Shadowfax", Pattern.compile("^SF\\d{9,15}$"));
         BY_PREFIX.put("India Post", Pattern.compile("^[A-Z]{2}\\d{9}IN$"));
 

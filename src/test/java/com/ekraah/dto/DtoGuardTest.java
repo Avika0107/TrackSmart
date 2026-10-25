@@ -16,6 +16,7 @@ class DtoGuardTest {
     @Test
     void requestDtos_haveNoUserIdField() {
         assertThat(componentsOf(OrderDtos.CreateOrderRequest.class)).doesNotContain("userId");
+        assertThat(componentsOf(OrderDtos.ImportOrderRequest.class)).doesNotContain("userId");
         assertThat(componentsOf(AuthDtos.RequestOtpRequest.class)).doesNotContain("userId");
         assertThat(componentsOf(AuthDtos.LoginRequest.class)).doesNotContain("userId");
         assertThat(componentsOf(AuthDtos.RegisterRequest.class)).doesNotContain("userId");

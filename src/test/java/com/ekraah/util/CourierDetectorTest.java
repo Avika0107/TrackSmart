@@ -20,6 +20,13 @@ class CourierDetectorTest {
     }
 
     @Test
+    void detectsEkartFmpcAndFmppVariants() {
+        assertThat(CourierDetector.detect("FMPC1234567890", null)).contains("Ekart");
+        assertThat(CourierDetector.detect("FMPP1234567890", null)).contains("Ekart");
+        assertThat(CourierDetector.detect("FMPX1234567890", null)).isEqualTo(Optional.empty());
+    }
+
+    @Test
     void detectsShadowfax() {
         assertThat(CourierDetector.detect("SF1234567890123", null)).contains("Shadowfax");
     }
