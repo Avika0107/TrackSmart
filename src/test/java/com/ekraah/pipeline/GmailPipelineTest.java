@@ -365,4 +365,21 @@ class GmailPipelineTest {
                 new HttpEntity<>(Map.of("phone", "9812345670", "password", "pipeline-test-pw"), json()), Map.class);
         assertThat(locked.getStatusCode().value()).isEqualTo(429);
     }
+
+    @Test
+    @Order(15)
+    @SuppressWarnings("unchecked")
+    void highRiskOrderProducedAnAlertThatCanBeMarkedRead() {
+        // Test 6 pushed FMP9998887 to HIGH risk under stormy weather; AlertService ran with it.
+        // Log in fresh: test 14 locked the password, so reuse the session token.
+        Map<String, Object> res = rest.exchange("/api/alerts", HttpMethod.GET, new HttpEntity<>(auth()), Map.class).getBody();
+        List<Map<String, Object>> list = (List<Map<String, Object>>) res.get("alerts");
+        assertThat(list).anyMatch(a -> "HIGH_RISK".equals(a.get("kind")) && "****8887".equals(a.get("tracking"))
+                && ((String) a.get("message")).contains("Possible delay"));
+        assertThat(((Number) res.get("unread")).intValue()).isPositive();
+
+        rest.exchange("/api/alerts/read", HttpMethod.POST, new HttpEntity<>(auth()), Void.class);
+        Map<String, Object> after = rest.exchange("/api/alerts", HttpMethod.GET, new HttpEntity<>(auth()), Map.class).getBody();
+        assertThat(((Number) after.get("unread")).intValue()).isZero();
+    }
 }

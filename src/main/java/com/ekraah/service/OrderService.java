@@ -51,15 +51,18 @@ public class OrderService {
     private final WeatherService weather;
     private final DelayRiskService riskService;
     private final AuditService audit;
+    private final AlertService alerts;
 
     public OrderService(OrderRepository orders, UserRepository users, TrackingService tracking,
-                        WeatherService weather, DelayRiskService riskService, AuditService audit) {
+                        WeatherService weather, DelayRiskService riskService, AuditService audit,
+                        AlertService alerts) {
         this.orders = orders;
         this.users = users;
         this.tracking = tracking;
         this.weather = weather;
         this.riskService = riskService;
         this.audit = audit;
+        this.alerts = alerts;
     }
 
     public enum EmailOutcome { CREATED, UPDATED, DUPLICATE }
@@ -649,6 +652,12 @@ public class OrderService {
 
     /** Rules only: city + status + weather -> risk. Called on refresh and when a read finds stale risk. */
     public void computeRisk(Order order) {
+        scoreRisk(order);
+        // Every status/risk change path ends here, so alerts are evaluated in one place.
+        alerts.evaluate(order);
+    }
+
+    private void scoreRisk(Order order) {
         if (isFinished(order)) {
             order.setRisk(null); // UI hides risk for delivered / cancelled / returned orders
             return;

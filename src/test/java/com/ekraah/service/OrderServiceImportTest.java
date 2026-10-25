@@ -49,7 +49,8 @@ class OrderServiceImportTest {
         orders = mock(OrderRepository.class);
         tracking = mock(TrackingService.class);
         service = new OrderService(orders, mock(UserRepository.class), tracking,
-                mock(WeatherService.class), mock(DelayRiskService.class), mock(AuditService.class));
+                mock(WeatherService.class), mock(DelayRiskService.class), mock(AuditService.class),
+                mock(AlertService.class));
 
         when(orders.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
         when(orders.findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(eq(USER), anyString()))

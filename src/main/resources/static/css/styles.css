@@ -360,3 +360,23 @@ label.lbl { display: block; font-size: 12.5px; font-weight: 700; color: var(--te
 
 /* profile/settings cards carry their own padding (base .card is un-padded) */
 .pcard { padding: 20px; }
+
+/* ---- Alerts bell (alerts.js) ---- */
+.bell-btn {
+  position: relative; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--card); color: var(--text); font-size: 17px; cursor: pointer; display: grid; place-items: center;
+}
+.bell-btn:hover { filter: brightness(1.15); }
+.alert-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--high); color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+}
+.alert-badge[hidden] { display: none; }
+.alert-menu { width: min(360px, calc(100vw - 32px)); }
+.alert-list { max-height: 360px; overflow-y: auto; }
+.alert-item { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; }
+.alert-item.unread { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.alert-ico { flex: none; }
+.alert-msg { display: block; line-height: 1.4; }
+.alert-time { display: block; font-size: 11.5px; color: var(--text-soft); margin-top: 3px; }
+.alert-empty { padding: 12px; font-size: 13px; color: var(--text-soft); }
