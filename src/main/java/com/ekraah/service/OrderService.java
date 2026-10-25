@@ -71,8 +71,11 @@ public class OrderService {
     public EmailResult upsertFromEmail(User user, ParsedEmail parsed, RawEmail email) {
         String domain = domainOf(email.from());
 
+        // A replayed email (IMAP re-delivery, re-forward) must not re-apply: check both the email
+        // that created an order and every email applied to one since.
         if (email.messageId() != null
-                && orders.findByUserIdAndSourceMessageId(user.getId(), email.messageId()).isPresent()) {
+                && (orders.findByUserIdAndSourceMessageId(user.getId(), email.messageId()).isPresent()
+                    || orders.existsByUserIdAndMessageIds(user.getId(), email.messageId()))) {
             audit.record(user.getId(), domain, AuditAction.DUPLICATE,
                     "Duplicate message ignored (AWB " + Mask.tracking(parsed.trackingNumber()) + ")");
             return new EmailResult(EmailOutcome.DUPLICATE, null);
@@ -137,6 +140,7 @@ public class OrderService {
         } else {
             computeRisk(order);
         }
+        rememberMessage(order, email);
         orders.save(order);
 
         String summary = created
@@ -182,6 +186,7 @@ public class OrderService {
         order.getEvents().add(new OrderEvent("Order cancelled — cancellation email received from " + domain, null, Instant.now()));
         order.setLastUpdated(Instant.now());
         order.setRisk(null); // terminal: no delay risk on a cancelled order
+        rememberMessage(order, email);
         orders.save(order);
         audit.record(user.getId(), domain, AuditAction.PROCESSED,
                 "Order " + Mask.tracking(order.getTrackingNumber()) + " marked CANCELLED from " + domain + " email");
@@ -201,6 +206,7 @@ public class OrderService {
             p.getEvents().add(new OrderEvent("Order confirmation received from " + domain, null, Instant.now()));
             if (parsed.estimatedDelivery() != null) p.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
             p.setLastUpdated(Instant.now());
+            rememberMessage(p, email);
             orders.save(p);
             audit.record(user.getId(), domain, AuditAction.PROCESSED,
                     "Order confirmation from " + domain + " (tracking number not issued yet)");
@@ -218,6 +224,7 @@ public class OrderService {
         if (parsed.estimatedDelivery() != null) order.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
         order.getEvents().add(new OrderEvent("Order placed — confirmation email received from " + domain, null, Instant.now()));
         order.setLastUpdated(Instant.now());
+        rememberMessage(order, email);
         orders.save(order);
         audit.record(user.getId(), domain, AuditAction.PROCESSED,
                 "Order confirmation from " + domain + " (tracking number not issued yet)");
@@ -239,6 +246,7 @@ public class OrderService {
                 null, Instant.now()));
         pending.setLastUpdated(Instant.now());
         computeRisk(pending);
+        rememberMessage(pending, email);
         orders.save(pending);
         audit.record(pending.getUserId(), domain, AuditAction.PROCESSED,
                 "Extracted AWB ending " + last4(parsed.trackingNumber()) + " from " + domain
@@ -483,6 +491,14 @@ public class OrderService {
                         && o.getRetailerOrderId() == null);
     }
 
+    /** Records an applied email so a replay of it is recognised as a duplicate. */
+    private static void rememberMessage(Order order, RawEmail email) {
+        if (email.messageId() == null) return;
+        List<String> ids = new java.util.ArrayList<>(order.getMessageIds() == null ? List.of() : order.getMessageIds());
+        if (!ids.contains(email.messageId())) ids.add(email.messageId());
+        order.setMessageIds(ids);
+    }
+
     /** Delivered, cancelled or returned: no tracking, no risk, not counted as on-time. */
     private static boolean isFinished(Order o) {
         return o.getStatus() != null && o.getStatus().isTerminal();
@@ -576,6 +592,19 @@ public class OrderService {
             orders.save(order);
         }
         return old.size();
+    }
+
+    /**
+     * Demo weather toggle: re-score every active order now. Stored risk is otherwise only
+     * recomputed once it is older than an hour, so the toggle had no visible effect.
+     */
+    public int recomputeActiveRisk() {
+        List<Order> active = orders.findByStatusIn(List.copyOf(OrderStatus.ACTIVE));
+        for (Order order : active) {
+            computeRisk(order);
+            orders.save(order);
+        }
+        return active.size();
     }
 
     public Order forceStatus(String orderId, OrderStatus status) {

@@ -83,6 +83,7 @@
     <p class="muted">Signed in as <strong id="who"></strong>.<br>
       Open an order's details page, then send it. Only the tracking number, courier, order id, status and delivery dates are shared.</p>
     <button id="send-btn" type="button">Send this order to EkRaah</button>
+    <button id="open-dashboard" class="link" type="button">Open dashboard ↗</button>
   </section>
 
   <!-- Success / error message from the last action (role=status so screen readers announce it) -->
@@ -101,5 +102,6 @@
 - The login form is a real <form> so Enter submits it and the browser can offer saved passwords
   (autocomplete="tel" / "current-password").
 - The privacy line in send-view states exactly what extract.js sends — keep them in sync.
+- #open-dashboard opens the web app in a new tab, to see the card that Send just created.
 - #result uses aria-live so "Order added" / errors are announced without moving focus.
 -->

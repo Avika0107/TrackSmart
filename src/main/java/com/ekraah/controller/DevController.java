@@ -80,7 +80,8 @@ public class DevController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "mode must be stormy or clear");
         }
         weather.setMockMode(mode);
-        return Map.of("mode", weather.getMockMode());
+        int rescored = orders.recomputeActiveRisk();
+        return Map.of("mode", weather.getMockMode(), "rescored", rescored);
     }
 
     @PostMapping("/orders/{id}/status")

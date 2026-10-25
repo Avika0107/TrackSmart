@@ -126,8 +126,9 @@ export function statusPill(status) {
     STATUS_LABEL[status] || status);
 }
 
+// AJIO uses a lighter tone of its brand navy (#2c4152), which is unreadable on the dark theme.
 export const PLATFORM_COLORS = {
-  AMAZON: "#ff9900", FLIPKART: "#2874f0", MYNTRA: "#ff3f6c", NYKAA: "#fc2779", AJIO: "#2c4152", OTHER: "#8b93b0",
+  AMAZON: "#ff9900", FLIPKART: "#2874f0", MYNTRA: "#ff3f6c", NYKAA: "#fc2779", AJIO: "#4f86b5", OTHER: "#8b93b0",
 };
 
 export function weatherIcon(snap) {

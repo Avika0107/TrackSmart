@@ -18,11 +18,16 @@ public interface OrderRepository extends MongoRepository<Order, String> {
 
     Optional<Order> findByUserIdAndSourceMessageId(String userId, String sourceMessageId);
 
+    /** Matches when messageId is one element of the order's messageIds array. */
+    boolean existsByUserIdAndMessageIds(String userId, String messageId);
+
     Optional<Order> findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(String userId, String trackingNumber);
 
     long countByUserId(String userId);
 
     List<Order> findByStatusInAndTrackingMode(List<OrderStatus> statuses, TrackingMode trackingMode);
+
+    List<Order> findByStatusIn(List<OrderStatus> statuses);
 
     Optional<Order> findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(String userId, TrackingMode trackingMode);
 

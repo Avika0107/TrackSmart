@@ -3,6 +3,9 @@
 
 const $ = (id) => document.getElementById(id);
 
+// The web app is served by the same backend background.js calls (API_BASE minus "/api").
+const DASHBOARD_URL = "http://localhost:8080/#/dashboard";
+
 const loginView = $("login-view");
 const sendView = $("send-view");
 const logoutBtn = $("logout");
@@ -131,6 +134,11 @@ $("send-btn").addEventListener("click", () => {
       showError(err.message);
     }
   });
+});
+
+$("open-dashboard").addEventListener("click", () => {
+  chrome.tabs.create({ url: DASHBOARD_URL });          // tabs.create needs no "tabs" permission
+  window.close();
 });
 
 logoutBtn.addEventListener("click", async () => {

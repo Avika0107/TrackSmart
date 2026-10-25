@@ -37,6 +37,23 @@ class JwtAuthFilterTest {
     }
 
     @Test
+    void tokenOfDeletedAccountIsRejected() throws ServletException, IOException {
+        JwtAuthFilter strict = new JwtAuthFilter(new JwtService(props()), userId -> false);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        request.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        strict.doFilter(request, response, new MockFilterChain());
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    private static AppProperties props() {
+        AppProperties props = new AppProperties();
+        props.getJwt().setSecret("test-secret-key-that-is-long-enough-0123456789");
+        return props;
+    }
+
+    @Test
     void noTokenLeavesContextEmpty() throws ServletException, IOException {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
         filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());

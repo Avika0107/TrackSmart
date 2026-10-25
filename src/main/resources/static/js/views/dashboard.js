@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import {
   el, toast, skeletonRow, emptyState, timeAgo, fmtDate, fmtDateTime, maskTracking,
-  counter, celebrate, statusStep, statusPill, PLATFORM_COLORS, weatherIcon,
+  counter, celebrate, statusStep, statusPill, PLATFORM_COLORS, weatherIcon, STATUS_LABEL,
 } from "../ui.js";
 import { state, layout } from "../app.js";
 
@@ -103,8 +103,10 @@ function filterBar(content) {
       chip("Out for delivery", "status", "OUT_FOR_DELIVERY"), chip("Delivered", "status", "DELIVERED")),
     el("div", { class: "chips" },
       chip("Flipkart", "platform", "FLIPKART"), chip("Amazon", "platform", "AMAZON"),
-      chip("Myntra", "platform", "MYNTRA"), chip("Nykaa", "platform", "NYKAA")),
-    search, sort);
+      chip("Myntra", "platform", "MYNTRA"), chip("Nykaa", "platform", "NYKAA"), chip("Ajio", "platform", "AJIO")),
+    search, sort,
+    // Always reachable: the empty-state button disappears as soon as there is one order.
+    el("button", { class: "btn small", onclick: () => openAddModal(content) }, "+ Add order"));
 }
 
 function emptyGrid(content) {
@@ -267,6 +269,8 @@ export async function openDetail(orderId) {
         try { await api(`/orders/${o.id}`, { method: "DELETE" }); toast("Order removed", "ok"); close(); renderDashboard(); }
         catch (e) { toast(e.message, "err"); }
       } }, "🗑 Delete")),
+
+    state.demoMode ? demoStatusPicker(o, close) : null,
   ].filter((c) => c != null));
   overlay.replaceChildren(bg, panel);
 }
@@ -281,6 +285,24 @@ function timeline(o) {
         el("div", { class: "d" }, ev.description || "Update"),
         el("div", { class: "m" },
           [ev.location, fmtDateTime(ev.time)].filter(Boolean).join(" · "))))));
+}
+
+/* ---------------- demo only: force a status (POST /api/dev/orders/{id}/status) ---------------- */
+
+function demoStatusPicker(o, close) {
+  const statuses = ["ORDERED", "SHIPPED", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "EXCEPTION", "CANCELLED", "RETURNED"];
+  const select = el("select", { class: "input", "aria-label": "Demo: set order status", style: "width:auto" },
+    ...statuses.map((st) => el("option", { value: st }, STATUS_LABEL[st] || st)));
+  select.value = o.status;
+  select.addEventListener("change", async () => {
+    try {
+      await api(`/dev/orders/${o.id}/status?status=${select.value}`, { method: "POST" });
+      toast(`Status set to ${STATUS_LABEL[select.value] || select.value}`, "ok");
+      close(); renderDashboard();
+    } catch (e) { toast(e.message, "err"); }
+  });
+  return el("div", { style: "display:flex;gap:10px;align-items:center;margin-top:14px" },
+    el("span", { class: "chip demo" }, "Demo"), el("span", { class: "lbl", style: "margin:0" }, "Set status"), select);
 }
 
 /* ---------------- add tracking number to a page-only order ---------------- */
@@ -340,6 +362,7 @@ function openAddModal(content) {
           "Paste any Ekart / Delhivery / Blue Dart / Xpressbees / Shadowfax / India Post number."),
         el("label", { class: "lbl" }, "Tracking number"), input,
         el("div", { style: "margin-top:10px" }, detect), btn)));
+  input.focus();
 }
 
 /* ---------------- demo control panel ---------------- */
@@ -351,8 +374,12 @@ function mountDemoPanel() {
   const fab = el("button", { class: "btn ghost demo-fab", "aria-label": "Open demo control panel" }, "🎛️ Demo panel");
   let drawer = null;
 
-  fab.addEventListener("click", async () => {
-    if (drawer) { drawer.remove(); drawer = null; return; }
+  // Every panel action re-renders the dashboard (which re-mounts this panel), so whether the
+  // drawer is open lives in state.demoOpen and is restored below — otherwise it closed after
+  // each click and the demo script needed a reopen per step.
+  const close = () => { drawer?.remove(); drawer = null; state.demoOpen = false; };
+  const open = async () => {
+    state.demoOpen = true;
     const samples = await api("/dev/samples").catch(() => []);
     const list = el("div", { class: "grid" },
       ...samples.filter((s) => !s.name.startsWith("Gmail")).map((s) =>
@@ -361,6 +388,11 @@ function mountDemoPanel() {
           onclick: async () => {
             try {
               const { name, ...payload } = s;
+              // Samples are addressed to the seeded demo user (+rahul55); re-address them to the
+              // logged-in user's alias so a newly created account sees its own simulated orders.
+              if (state.me?.inboundAlias && /\+[^@]+@/.test(payload.to || "")) {
+                payload.to = payload.to.replace(/\+[^@]+@/, `+${state.me.inboundAlias}@`);
+              }
               const res = await api("/dev/simulate-email", { method: "POST", body: payload });
               toast(`${name}: ${res.outcome}`, res.outcome === "CREATED" || res.outcome === "UPDATED" || res.outcome === "FORWARDING_CODE_SAVED" ? "ok" : "info");
               renderDashboard();
@@ -371,12 +403,12 @@ function mountDemoPanel() {
     const clear = el("button", { class: "btn ghost small" }, "🌤️ Clear");
     stormy.addEventListener("click", async () => {
       await api("/dev/set-weather?mode=stormy", { method: "POST" });
-      toast("Weather set to stormy — reload risk scores", "ok");
+      toast("Weather set to stormy — risk scores updated", "ok");
       renderDashboard();
     });
     clear.addEventListener("click", async () => {
       await api("/dev/set-weather?mode=clear", { method: "POST" });
-      toast("Weather set to clear", "ok");
+      toast("Weather set to clear — risk scores updated", "ok");
       renderDashboard();
     });
     const poll = el("button", { class: "btn ghost small", style: "width:100%", onclick: async () => {
@@ -385,14 +417,17 @@ function mountDemoPanel() {
     } }, "📬 Poll inbox now");
 
     drawer = el("div", { class: "card demo-drawer", role: "dialog", "aria-label": "Demo control panel" },
-      el("h3", {}, "Demo control panel", el("button", { class: "chip", style: "cursor:pointer", onclick: () => { drawer.remove(); drawer = null; } }, "✕")),
+      el("h3", {}, "Demo control panel", el("button", { class: "chip", style: "cursor:pointer", "aria-label": "Close demo panel", onclick: close }, "✕")),
       list,
       el("div", { class: "row2" }, stormy, clear),
       el("div", { style: "height:8px" }), poll);
+    document.querySelector(".demo-drawer")?.remove();   // a re-render may race an open in flight
     overlay.append(drawer);
-  });
+  };
+  fab.addEventListener("click", () => (drawer ? close() : open()));
 
   document.querySelector(".demo-fab")?.remove();
   document.querySelector(".demo-drawer")?.remove();
   document.body.append(fab);
+  if (state.demoOpen) open();
 }

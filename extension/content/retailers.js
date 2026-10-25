@@ -52,11 +52,12 @@ globalThis.EKRAAH_RETAILERS = (() => {
     ],
 
     // Labels that sit right before a tracking number on order pages, across retailers.
-    // Group 1 is the candidate number; extract.js validates it with the awb patterns below.
+    // Group 1 is the candidate number; extract.js strips hyphens ("FMPP-1234-567890") and
+    // validates it with the awb patterns below, so every label must accept hyphens.
     trackingLabels: [
-      /tracking\s*(?:id|no\.?|number)\s*[:#-]?\s*([A-Z0-9-]{8,25})/i,
-      /\bAWB\s*(?:no\.?|number)?\s*[:#-]?\s*([A-Z0-9]{8,25})/i,
-      /(?:shipment|consignment|docket)\s*(?:id|no\.?|number)\s*[:#-]?\s*([A-Z0-9]{8,25})/i,
+      /tracking\s*(?:id|no\.?|number)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{7,30})/i,
+      /\bAWB\s*(?:no\.?|number)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{7,30})/i,
+      /(?:shipment|consignment|docket)\s*(?:id|no\.?|number)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{7,30})/i,
     ],
 
     // Courier names as retailers print them -> the name CourierDetector uses on the backend.

@@ -4,7 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -33,6 +37,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(NoResourceFoundException e) {
         return body(HttpStatus.NOT_FOUND, "Not found.", null);
+    }
+
+    /** Controllers that throw ResponseStatusException (e.g. DevController) chose the status on purpose. */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleStatus(ResponseStatusException e) {
+        HttpStatus status = HttpStatus.valueOf(e.getStatusCode().value());
+        return body(status, e.getReason() != null ? e.getReason() : status.getReasonPhrase(), null);
+    }
+
+    /** Bad or missing query parameters (e.g. ?status=BOGUS) are a client mistake, not a server error. */
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class, MissingServletRequestParameterException.class,
+            HttpMessageNotReadableException.class})
+    public ResponseEntity<Map<String, Object>> handleBadRequest(Exception e) {
+        String message = e instanceof MethodArgumentTypeMismatchException m
+                ? "Invalid value for '" + m.getName() + "'."
+                : e instanceof MissingServletRequestParameterException m
+                        ? "Missing parameter '" + m.getParameterName() + "'."
+                        : "The request body couldn't be read.";
+        return body(HttpStatus.BAD_REQUEST, message, null);
     }
 
     @ExceptionHandler(Exception.class)

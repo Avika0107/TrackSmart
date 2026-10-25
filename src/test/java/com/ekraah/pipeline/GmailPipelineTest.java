@@ -45,7 +45,10 @@ class GmailPipelineTest {
     @Autowired
     TestRestTemplate rest;
 
-    private String token;
+    // JUnit creates a new instance per test method, so the session is shared statically:
+    // the account is registered once (test 1) and later tests reuse its token and alias.
+    private static String token;
+    private static String inbox;   // demoinbox+<generated alias>@gmail.com
 
     private HttpHeaders auth() {
         HttpHeaders headers = new HttpHeaders();
@@ -64,6 +67,11 @@ class GmailPipelineTest {
                         json()), Map.class).getBody();
         token = (String) res.get("token");
         assertThat(token).isNotBlank();
+
+        // Signup generates the inbound alias; mail must be addressed to it to reach this user.
+        Map<String, Object> me = rest.exchange("/api/me", HttpMethod.GET,
+                new HttpEntity<>(auth()), Map.class).getBody();
+        inbox = "demoinbox+" + me.get("inboundAlias") + "@gmail.com";
     }
 
     private HttpHeaders json() {
@@ -93,7 +101,7 @@ class GmailPipelineTest {
         Map<String, Object> res = simulate(Map.of(
                 "messageId", "it-flipkart-001",
                 "from", "shipment-tracking@flipkart.com",
-                "to", "demoinbox+tester@gmail.com",
+                "to", inbox,
                 "subject", "Order shipped",
                 "body", "Your order shipped via Ekart. Tracking FMP7770001. Expected delivery by Wed, 7 Oct."));
         assertThat(res.get("outcome")).isEqualTo("CREATED");
@@ -110,7 +118,7 @@ class GmailPipelineTest {
         simulate(Map.of(
                 "messageId", "it-flipkart-001",
                 "from", "shipment-tracking@flipkart.com",
-                "to", "demoinbox+tester@gmail.com",
+                "to", inbox,
                 "subject", "Order shipped",
                 "body", "Your order shipped via Ekart. Tracking FMP7770001."));
         long count = orders().stream()
@@ -125,7 +133,7 @@ class GmailPipelineTest {
         Map<String, Object> res = simulate(Map.of(
                 "messageId", "it-flipkart-002",
                 "from", "shipment-tracking@flipkart.com",
-                "to", "demoinbox+tester@gmail.com",
+                "to", inbox,
                 "subject", "Out for delivery",
                 "body", "Your order is out for delivery. AWB FMP7770001."));
         assertThat(res.get("outcome")).isEqualTo("UPDATED");
@@ -143,7 +151,7 @@ class GmailPipelineTest {
         Map<String, Object> res = simulate(Map.of(
                 "messageId", "it-unknown-001",
                 "from", "orders@randombazaar.in",
-                "to", "demoinbox+tester@gmail.com",
+                "to", inbox,
                 "subject", "shipped",
                 "body", "Tracking 771234567890"));
         assertThat(res.get("outcome")).isEqualTo("IGNORED_SENDER");
@@ -167,7 +175,7 @@ class GmailPipelineTest {
         Map<String, Object> res = simulate(Map.of(
                 "messageId", "it-promo-001",
                 "from", "no-reply@flipkart.com",
-                "to", "demoinbox+tester@gmail.com",
+                "to", inbox,
                 "subject", "90% off sale",
                 "body", "Big sale today!"));
         assertThat(res.get("outcome")).isEqualTo("IGNORED_NO_TRACKING");
@@ -194,5 +202,36 @@ class GmailPipelineTest {
         assertThat(risk.get("level")).isEqualTo("HIGH"); // stormy demo weather
         assertThat((List<String>) risk.get("reasons")).isNotEmpty();
         assertThat((String) risk.get("message")).contains("Thunderstorm");
+    }
+
+    @Test
+    @Order(7)
+    @SuppressWarnings("unchecked")
+    void replayingAStatusUpdateEmailIsADuplicate() {
+        login();
+        // it-flipkart-002 (test 3) updated an existing order rather than creating one; its
+        // Message-ID must still be remembered, or a replay re-applies it and grows the timeline.
+        int eventsBefore = ((List<Object>) orders().stream()
+                .filter(o -> "FMP7770001".equals(o.get("trackingNumber"))).findFirst().orElseThrow().get("events")).size();
+        Map<String, Object> res = simulate(Map.of(
+                "messageId", "it-flipkart-002",
+                "from", "shipment-tracking@flipkart.com",
+                "to", inbox,
+                "subject", "Out for delivery",
+                "body", "Your order is out for delivery. AWB FMP7770001."));
+        assertThat(res.get("outcome")).isEqualTo("DUPLICATE");
+        int eventsAfter = ((List<Object>) orders().stream()
+                .filter(o -> "FMP7770001".equals(o.get("trackingNumber"))).findFirst().orElseThrow().get("events")).size();
+        assertThat(eventsAfter).isEqualTo(eventsBefore);
+    }
+
+    @Test
+    @Order(8)
+    @SuppressWarnings("unchecked")
+    void authModeReportsDemoInDemoProfile() {
+        // The login page shows "Demo OTP: 123456" and the dashboard mounts the Demo Control
+        // Panel only when this is true; it used to be inverted and always reported false.
+        Map<String, Object> mode = rest.getForObject("/api/auth/mode", Map.class);
+        assertThat(mode.get("demoMode")).isEqualTo(true);
     }
 }

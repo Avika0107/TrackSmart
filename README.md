@@ -47,7 +47,7 @@ Manual "add by number" ───────────────────
 
 ## Tech stack
 
-Java 17 · Spring Boot 3.5 (Web, Validation, Security, Scheduling, Data MongoDB, Actuator, Mail) · Maven · MongoDB (Atlas M0 or local Docker) · Jakarta Mail (IMAP) · jsoup · Caffeine · JJWT · springdoc-openapi (Swagger UI) · Vanilla-JS SPA (ES modules, no build step) with Chart.js + canvas-confetti via CDN · JUnit 5, Mockito-free pure unit tests, MockWebServer, Testcontainers.
+Java 25 · Spring Boot 3.5 (Web, Validation, Security, Scheduling, Data MongoDB, Actuator, Mail) · Maven · MongoDB (Atlas M0 or local Docker) · Jakarta Mail (IMAP) · jsoup · Caffeine · JJWT · springdoc-openapi (Swagger UI) · Vanilla-JS SPA (ES modules, no build step) with Chart.js + canvas-confetti via CDN · JUnit 5, Mockito, MockWebServer, Testcontainers.
 
 ## Run in demo mode in under 5 minutes
 
@@ -57,13 +57,15 @@ docker compose up mongo -d
 
 # 2. Run the app (demo profile is the default: mock providers, fixed OTP, dev endpoints)
 ./mvnw spring-boot:run          # Windows: mvnw.cmd spring-boot:run
+#    The project targets Java 25 (as the Dockerfile does). The code also builds on Java 21:
+#    ./mvnw -Djava.version=21 spring-boot:run
 
 # 3. Open http://localhost:8080
 ```
 
 - Log in with **phone + password** — knowing the number alone is not enough. New accounts use **Create account** (phone + OTP + choose password); **Forgot password** resets it via OTP. Demo OTP is **123456** (clearly labelled *Demo mode* in the UI).
 - Demo credentials: `9999999999` / `demo1234` (any other number can create its own account).
-- The **Demo Control Panel** (bottom-left, demo profile only) lets you simulate each of the 9 sample emails, toggle 🌧️ stormy / 🌤️ weather, force status changes and trigger an inbox poll — a full 3-minute demo with zero waiting.
+- The **Demo Control Panel** (bottom-right of the dashboard, demo profile only) lets you simulate each of the 9 sample emails, toggle 🌧️ stormy / 🌤️ weather, force status changes and trigger an inbox poll — a full 3-minute demo with zero waiting.
 - Seed data loads on first run: demo user `9999999999` (alias `rahul55`) with 6 varied orders including one HIGH-risk stormy example and one delivered.
 
 ### Or run everything containerized
@@ -188,10 +190,14 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 ## Testing
 
 ```bash
-./mvnw test
+./mvnw test                                        # backend: 107 tests
+osascript -l JavaScript extension/test/extract.test.js   # extension page reading (macOS, no Node needed)
+node extension/test/extract.test.js                # …or with Node
 ```
 
-64 tests: `EmailParser` (per-courier regexes, promo-mail rejection, ETA formats, facts-only record), `DelayRiskService` (threshold boundaries, OFD halving, delivered), `AliasResolver`, `CourierDetector`, `FallbackTrackingProvider` (failure/budget/unknown), `OtpService` (rate limits), `JwtService`/`JwtAuthFilter`, DTO guard (no `userId` in any request DTO), `OpenMeteoClient` (MockWebServer), `MockTrackingProvider` (determinism) and a full **`GmailPipelineTest`** integration test (Testcontainers Mongo; auto-skipped when Docker isn't running) covering login → simulate → dedupe → allowlist → audit → stormy risk.
+Backend: `EmailParser` (per-courier regexes, promo-mail rejection, ETA formats, facts-only record), `DelayRiskService` (threshold boundaries, OFD halving, delivered), `AliasResolver`, `CourierDetector`, `FallbackTrackingProvider` (failure/budget/unknown), `OtpService` (rate limits), `JwtService`/`JwtAuthFilter`, DTO guard (no `userId` in any request DTO), `OpenMeteoClient` (MockWebServer), `MockTrackingProvider` (determinism) `OrderServiceImportTest` (extension import: tracking number vs order id, delivered/returned, attach tracking, no duplicates) and a full **`GmailPipelineTest`** integration test (Testcontainers Mongo; auto-skipped when Docker isn't running — needs Testcontainers ≥ 1.21.4 for Docker Engine 29+) covering login → simulate → dedupe (including replayed status emails) → allowlist → audit → stormy risk → demo mode flag.
+
+Extension: `extension/test/extract.test.js` runs the real `content/retailers.js` + `content/extract.js` against order-page text (Flipkart wording checked on a live account): delivered / returned / shipped / cancelled pages, upcoming steps that must not count as done, hyphenated AWBs, unsupported stores.
 
 ## Future scope
 
