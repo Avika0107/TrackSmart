@@ -1,5 +1,7 @@
 # 📦 EkRaah — Unified Order Tracker with Weather-Based Delay Alerts
 
+[![CI](https://github.com/Avika0107/TrackSmart/actions/workflows/ci.yml/badge.svg)](https://github.com/Avika0107/TrackSmart/actions/workflows/ci.yml)
+
 One dashboard for every Indian online-shopping order — Amazon, Flipkart, Myntra, Nykaa, AJIO — with live status and a **transparent, rule-based weather delay risk**.
 
 > **Two honest truths baked into the product**
@@ -32,6 +34,7 @@ Manual "add by number" ───────────────────
 - **Tracking**: `TrackingProvider` strategy — `MockTrackingProvider` (default, deterministic, zero keys), `Ship24Provider`, `Track17Provider`, wrapped by `FallbackTrackingProvider` (falls back to mock on error / missing key / **daily budget exhausted**). Cached 3 h.
 - **Weather**: `WeatherClient` strategy — `MockWeatherClient` (default, demo "stormy" toggle) or `OpenMeteoClient` (free, **no API key, non-commercial use only**). Cached 1 h; geocoding cached permanently.
 - **Risk engine** (`DelayRiskService`): precipitation > 20 mm/24 h → +3; thunderstorm WMO 95–99 → +3; wind > 40 km/h → +2; visibility < 1 km → +1; heat > 42 °C → +1. `OUT_FOR_DELIVERY` halves the score; `DELIVERED` hides risk. 0–2 LOW, 3–4 MEDIUM, 5+ HIGH. Every triggered rule is listed as a reason in the UI ("Why we think this").
+- **Delay alerts** (`AlertService`): when an order turns HIGH risk, the courier reports an exception, or it goes out for delivery, an alert appears under the 🔔 bell (and as a desktop notification while the app is open, if allowed). At most one per order per day (out-for-delivery once); off via Settings → Delay-risk notifications. In-app only for now: users have no email on file, and SMS alerts need a separate DLT template.
 
 ## Milestone map (build order)
 
@@ -117,6 +120,7 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 | `POST /auth/request-otp`, `POST /auth/register` | Signup / first password: OTP `123456` in demo, rate-limited |
 | `POST /auth/reset-password` | Forgot password: phone + OTP + new password (no JWT issued) |
 | `GET /me`, `PATCH /me/settings`, `DELETE /me` | Profile, theme/notifications, full data deletion |
+| `GET /alerts`, `POST /alerts/read` | Delay alerts for the 🔔 bell (latest 30 + unread count), mark all read |
 | `POST /me/alias` | Replace my private forwarding address with a new random one (old one stops working) |
 | `POST /inbound/email` | Email relay webhook — HMAC-signed, not JWT; off unless `INBOUND_WEBHOOK_SECRET` is set |
 | `GET /orders?status=&platform=&q=&sort=` | Dashboard list (auto-recomputes stale risk >1 h) |
@@ -196,10 +200,12 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 ## Testing
 
 ```bash
-./mvnw test                                        # backend: 126 tests
+./mvnw test                                        # backend: 135 tests
 osascript -l JavaScript extension/test/extract.test.js   # extension page reading (macOS, no Node needed)
 node extension/test/extract.test.js                # …or with Node
 ```
+
+Every push and pull request runs all of these on GitHub Actions (`.github/workflows/ci.yml`), plus a Docker image build; the job fails if the Testcontainers tests get skipped.
 
 Backend: `EmailParser` (per-courier regexes, promo-mail rejection, ETA formats, facts-only record), `DelayRiskService` (threshold boundaries, OFD halving, delivered), `AliasResolver`, `CourierDetector`, `FallbackTrackingProvider` (failure/budget/unknown), `OtpService` (rate limits), `JwtService`/`JwtAuthFilter`, DTO guard (no `userId` in any request DTO), `OpenMeteoClient` (MockWebServer), `MockTrackingProvider` (determinism) `OrderServiceImportTest` (extension import: tracking number vs order id, delivered/returned, attach tracking, no duplicates) and a full **`GmailPipelineTest`** integration test (Testcontainers Mongo; auto-skipped when Docker isn't running — needs Testcontainers ≥ 1.21.4 for Docker Engine 29+) covering login → simulate → dedupe (including replayed status emails) → allowlist → audit → stormy risk → demo mode flag.
 

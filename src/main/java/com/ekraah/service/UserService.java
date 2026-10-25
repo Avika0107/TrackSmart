@@ -26,12 +26,15 @@ public class UserService {
     private final OrderRepository orders;
     private final AuditService audit;
     private final InboundAliases aliases;
+    private final AlertService alerts;
 
-    public UserService(UserRepository users, OrderRepository orders, AuditService audit, InboundAliases aliases) {
+    public UserService(UserRepository users, OrderRepository orders, AuditService audit, InboundAliases aliases,
+                       AlertService alerts) {
         this.users = users;
         this.orders = orders;
         this.audit = audit;
         this.aliases = aliases;
+        this.alerts = alerts;
     }
 
     /**
@@ -150,6 +153,7 @@ public class UserService {
         User user = get(userId);
         orders.deleteAll(orders.findByUserId(userId, Sort.unsorted()));
         audit.deleteForUser(userId);
+        alerts.deleteForUser(userId);
         users.delete(user);
     }
 }

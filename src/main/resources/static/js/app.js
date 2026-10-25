@@ -6,6 +6,7 @@ import { renderDashboard } from "./views/dashboard.js";
 import { renderInsights } from "./views/insights.js";
 import { renderPrivacy } from "./views/privacy.js";
 import { renderProfile, renderSettings } from "./views/profile.js";
+import { alertBell, startAlertPolling, stopAlertPolling } from "./alerts.js";
 
 export const state = {
   me: null,
@@ -36,6 +37,7 @@ export async function loadMe() {
 }
 
 export function logout() {
+  stopAlertPolling();
   clearToken();
   state.me = null;
   location.hash = "#/login";
@@ -89,6 +91,7 @@ export function layout(content, activeHash) {
           ),
           el("div", { class: "chips" },
             state.demoMode ? el("span", { class: "chip demo" }, "Demo mode") : null,
+            alertBell(),
             avatarButton(),
           ),
         ),
@@ -185,6 +188,7 @@ async function route() {
   if (!state.me) {
     try { await loadMe(); } catch (e) { return; }
   }
+  startAlertPolling();   // no-op when already running
   const view = NAV.find((n) => hash.startsWith(n.hash)) || NAV[0];
   view.view(); // views attach themselves via layout(); route() must not wrap them again
 }

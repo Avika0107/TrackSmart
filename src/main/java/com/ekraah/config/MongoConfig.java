@@ -1,5 +1,6 @@
 package com.ekraah.config;
 
+import com.ekraah.model.Alert;
 import com.ekraah.model.AuditLog;
 import com.ekraah.model.Order;
 import com.ekraah.model.User;
@@ -56,6 +57,12 @@ public class MongoConfig {
 
         ensure(mongo, AuditLog.class, "audit(userId,time)",
                 new Index().on("userId", Sort.Direction.ASC).on("time", Sort.Direction.DESC));
+
+        ensure(mongo, Alert.class, "alerts(userId,createdAt)",
+                new Index().on("userId", Sort.Direction.ASC).on("createdAt", Sort.Direction.DESC));
+        ensure(mongo, Alert.class, "alerts(userId,trackingNumber,kind,createdAt)",   // AlertService dedupe
+                new Index().on("userId", Sort.Direction.ASC).on("trackingNumber", Sort.Direction.ASC)
+                        .on("kind", Sort.Direction.ASC).on("createdAt", Sort.Direction.DESC));
         log.info("MongoDB index check finished");
     }
 
