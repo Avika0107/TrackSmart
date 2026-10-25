@@ -118,6 +118,7 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 |---|---|
 | `POST /auth/login` | Phone + password login (BCrypt hashes; demo user `9999999999` / `demo1234`). 5 failed attempts per number or 20 per IP lock login for 15 min (429) |
 | `POST /auth/request-otp`, `POST /auth/register` | Signup / first password: OTP `123456` in demo, rate-limited |
+| `POST /auth/refresh`, `POST /auth/logout` | New 15-min access token from the session (HttpOnly cookie; extension: body), rotating the refresh token / end the session immediately |
 | `POST /auth/reset-password` | Forgot password: phone + OTP + new password (no JWT issued) |
 | `GET /me`, `PATCH /me/settings`, `DELETE /me` | Profile, theme/notifications, full data deletion |
 | `GET /alerts`, `POST /alerts/read` | Delay alerts for the 🔔 bell (latest 30 + unread count), mark all read |
@@ -184,6 +185,7 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 - Non-allowlisted senders are **never parsed** — only a domain lands in the audit log.
 - **Forged senders are rejected**: the From header is forgeable, so mail is only processed when the receiving server's `Authentication-Results` (Gmail's, or the relay's) shows DKIM/DMARC pass for that retailer's domain.
 - **Aliases are random** (12 characters) and can be regenerated from the Setup page; they used to be derived from the phone number, so anyone knowing it could push orders into that dashboard.
+- **Sessions**: access tokens last 15 minutes and are checked against a server-side session on every request, so logout, password reset and account deletion take effect at once. The web app keeps the access token in memory only; its 30-day session is an `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/auth` that page scripts can't read. Refresh tokens are stored hashed, rotate on every use, and a replayed old one ends the session. The extension gets its own session whose tokens can only call `POST /api/orders/import`.
 - Logs mask phone numbers (`98****3210`) and tracking numbers (`****3456`).
 - `DELETE /me` removes the user, all orders and the audit log (one click in the UI).
 
@@ -200,7 +202,7 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 ## Testing
 
 ```bash
-./mvnw test                                        # backend: 135 tests
+./mvnw test                                        # backend: 139 tests
 osascript -l JavaScript extension/test/extract.test.js   # extension page reading (macOS, no Node needed)
 node extension/test/extract.test.js                # …or with Node
 ```

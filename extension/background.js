@@ -3,22 +3,32 @@
 // then posts the extracted facts (never the page itself) to /api/orders/import.
 
 const API_BASE = "http://localhost:8080/api";   // must match host_permissions in manifest.json
-const AUTH_KEY = "ekraah_auth";                 // chrome.storage.local key: { token, expiresAt, user }
+const AUTH_KEY = "ekraah_auth";   // chrome.storage.local: { token, expiresAt, refreshToken, sessionExpiresAt, user }
+const SESSION_DAYS = 30;           // matches SessionService.LIFETIME on the backend
 
 // ---------- Auth storage ----------
+// The backend gives the extension its own revocable session ("client": "extension"): a 15-minute
+// access token that can only call POST /orders/import, plus a 30-day refresh token. Logging out
+// here, resetting the password or deleting the account ends it server-side immediately.
 
 async function getAuth() {
   const { [AUTH_KEY]: auth } = await chrome.storage.local.get(AUTH_KEY);
-  if (!auth) return null;
-  if (Date.now() >= auth.expiresAt) {           // JWT expired: forget it so the popup shows login
+  if (!auth || !auth.refreshToken) return null;            // nothing stored, or the old token format
+  if (Date.now() >= auth.sessionExpiresAt) {               // session itself is over: show login
     await clearAuth();
     return null;
   }
   return auth;
 }
 
-async function setAuth(token, expiresInSeconds, user) {
-  const auth = { token, expiresAt: Date.now() + expiresInSeconds * 1000, user };
+async function saveAuth(data, previous) {
+  const auth = {
+    token: data.token,
+    expiresAt: Date.now() + data.expiresIn * 1000,
+    refreshToken: data.refreshToken,
+    sessionExpiresAt: previous?.sessionExpiresAt ?? Date.now() + SESSION_DAYS * 86_400_000,
+    user: data.user ?? previous?.user,
+  };
   await chrome.storage.local.set({ [AUTH_KEY]: auth });
   return auth;
 }
@@ -27,11 +37,26 @@ async function clearAuth() {
   await chrome.storage.local.remove(AUTH_KEY);
 }
 
+/** Trades the refresh token for a new access token (and a rotated refresh token). */
+async function renew(auth) {
+  const res = await fetch(API_BASE + "/auth/refresh", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: auth.refreshToken }),
+  }).catch(() => null);
+  if (!res) throw { status: 0, message: "Can't reach EkRaah — is the server running?" };
+  if (!res.ok) {                                  // revoked, expired or reused: log in again
+    await clearAuth();
+    throw { status: 401, message: "Session expired, please log in again." };
+  }
+  return saveAuth(await res.json(), auth);
+}
+
 // ---------- API helper (mirrors static/js/api.js) ----------
 
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body } = {}, retried = false) {
   const headers = { "Content-Type": "application/json" };
-  const auth = await getAuth();
+  let auth = path.startsWith("/auth/") ? null : await getAuth();
+  if (auth && Date.now() >= auth.expiresAt - 30_000) auth = await renew(auth);   // renew just before expiry
   if (auth) headers["Authorization"] = "Bearer " + auth.token;
 
   let res;
@@ -44,7 +69,11 @@ async function api(path, { method = "GET", body } = {}) {
     throw { status: 0, message: "Can't reach EkRaah — is the server running?" };
   }
 
-  if (res.status === 401 && auth) {              // token rejected server-side: log out locally too
+  if (res.status === 401 && auth) {
+    if (!retried) {                               // access token rejected: renew once and retry
+      await renew(auth);
+      return api(path, { method, body }, true);
+    }
     await clearAuth();
     throw { status: 401, message: "Session expired, please log in again." };
   }
@@ -56,9 +85,21 @@ async function api(path, { method = "GET", body } = {}) {
 // ---------- Actions ----------
 
 async function login(phone, password) {
-  const data = await api("/auth/login", { method: "POST", body: { phone, password } });
-  const auth = await setAuth(data.token, data.expiresIn, data.user);
+  const data = await api("/auth/login", { method: "POST", body: { phone, password, client: "extension" } });
+  const auth = await saveAuth(data, null);
   return { user: auth.user };
+}
+
+async function logout() {
+  const auth = await getAuth();
+  await clearAuth();
+  if (auth) {                                     // end the session server-side, not just locally
+    await fetch(API_BASE + "/auth/logout", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: auth.refreshToken }),
+    }).catch(() => {});
+  }
+  return { loggedIn: false };
 }
 
 async function status() {
@@ -101,7 +142,7 @@ async function sendOrder(tabId) {
 
 const handlers = {
   login: (msg) => login(msg.phone, msg.password),
-  logout: () => clearAuth().then(() => ({ loggedIn: false })),
+  logout: () => logout(),
   status: () => status(),
   sendOrder: (msg) => sendOrder(msg.tabId),
 };
@@ -118,8 +159,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // - API_BASE: the backend origin; because it's listed in host_permissions, fetch() from this
 //   service worker isn't blocked by CORS, so SecurityConfig needs no CORS change.
-// - getAuth(): checks expiry client-side (expiresIn comes from /auth/login, 720 min by default)
-//   so the popup can show the login form without a wasted request.
+// - getAuth()/renew(): the access token lasts 15 min and is renewed with the refresh token just
+//   before it expires (or once after a 401); a failed renewal means the session was ended — log in.
 // - api(): same contract as the SPA's api.js — backend errors arrive as { error: "..." }.
 // - sendOrder(): executeScript with two files runs them in order in the same isolated world,
 //   so extract.js can read the rules retailers.js defined; results.at(-1) is extract.js's value.

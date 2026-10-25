@@ -1,11 +1,13 @@
 package com.ekraah.service;
 
 import com.ekraah.exception.ApiException;
+import com.ekraah.model.Session;
 import com.ekraah.model.User;
 import com.ekraah.repository.UserRepository;
 import com.ekraah.security.JwtService;
 import com.ekraah.security.LoginThrottle;
 import com.ekraah.security.OtpService;
+import com.ekraah.security.SessionService;
 import com.ekraah.util.Mask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,15 +34,17 @@ public class AuthService {
     private final PasswordEncoder encoder;
     private final InboundAliases aliases;
     private final LoginThrottle throttle;
+    private final SessionService sessions;
 
     public AuthService(OtpService otp, JwtService jwt, UserRepository users, PasswordEncoder encoder,
-                       InboundAliases aliases, LoginThrottle throttle) {
+                       InboundAliases aliases, LoginThrottle throttle, SessionService sessions) {
         this.otp = otp;
         this.jwt = jwt;
         this.users = users;
         this.encoder = encoder;
         this.aliases = aliases;
         this.throttle = throttle;
+        this.sessions = sessions;
     }
 
     /** Strips formatting; expects a 10-digit Indian number (accepts +91 / 91 prefixes). */
@@ -58,11 +62,34 @@ public class AuthService {
         otp.requestOtp(normalizePhone(phone));
     }
 
-    public record AuthResult(String token, long expiresIn, User user) {}
+    /** token: 15-min access token. refreshToken: renews it (HttpOnly cookie for the web app). */
+    public record AuthResult(String token, long expiresIn, User user, String refreshToken) {}
+
+    /** Opens a session and issues its first access token. Extension sessions get the narrow scope. */
+    private AuthResult start(User user, String phone, Session.Kind kind) {
+        SessionService.Issued issued = sessions.create(user.getId(), kind);
+        String scope = kind == Session.Kind.EXTENSION ? JwtService.SCOPE_EXTENSION : JwtService.SCOPE_WEB;
+        return new AuthResult(jwt.issue(user.getId(), phone, issued.session().getId(), scope),
+                jwt.ttlSeconds(), user, issued.refreshToken());
+    }
+
+    /** Refresh: rotates the session's refresh token and issues a new access token. */
+    public AuthResult refresh(String refreshToken) {
+        SessionService.Issued issued = sessions.refresh(refreshToken);
+        User user = users.findById(issued.session().getUserId())
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Session expired, please log in again."));
+        String scope = issued.session().getKind() == Session.Kind.EXTENSION ? JwtService.SCOPE_EXTENSION : JwtService.SCOPE_WEB;
+        return new AuthResult(jwt.issue(user.getId(), user.getPhone(), issued.session().getId(), scope),
+                jwt.ttlSeconds(), user, issued.refreshToken());
+    }
+
+    public void logout(String refreshToken) {
+        sessions.revokeByRefreshToken(refreshToken);
+    }
 
     /** Password login — verifying possession of the phone is not enough anymore. */
     public AuthResult login(String phone, String password) {
-        return login(phone, password, null);
+        return login(phone, password, null, Session.Kind.WEB);
     }
 
     /**
@@ -71,6 +98,10 @@ public class AuthService {
      * to discover which numbers have accounts.
      */
     public AuthResult login(String phone, String password, String clientIp) {
+        return login(phone, password, clientIp, Session.Kind.WEB);
+    }
+
+    public AuthResult login(String phone, String password, String clientIp, Session.Kind kind) {
         String normalized = normalizePhone(phone);
         if (password == null || password.isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Password is required.");
@@ -91,7 +122,7 @@ public class AuthService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Incorrect phone number or password.");
         }
         throttle.recordSuccess(normalized);
-        return new AuthResult(jwt.issue(user.getId(), normalized), jwt.ttlSeconds(), user);
+        return start(user, normalized, kind);
     }
 
     /**
@@ -99,6 +130,10 @@ public class AuthService {
      * one-time password setup path for accounts that were created without one.
      */
     public AuthResult register(String phone, String code, String password) {
+        return register(phone, code, password, Session.Kind.WEB);
+    }
+
+    public AuthResult register(String phone, String code, String password, Session.Kind kind) {
         String normalized = normalizePhone(phone);
         validatePassword(password);
         Optional<User> existing = users.findByPhone(normalized);
@@ -111,7 +146,7 @@ public class AuthService {
         user.setPasswordHash(encoder.encode(password));
         User saved = users.save(user);
         log.info("Password set for {}", Mask.phone(normalized));
-        return new AuthResult(jwt.issue(saved.getId(), normalized), jwt.ttlSeconds(), saved);
+        return start(saved, normalized, kind);
     }
 
     /** Forgot password: OTP proves possession, then the password is replaced. No JWT is issued. */
@@ -123,7 +158,9 @@ public class AuthService {
         otp.verify(normalized, code);
         user.setPasswordHash(encoder.encode(password));
         users.save(user);
-        log.info("Password reset for {}", Mask.phone(normalized));
+        // Whoever knew the old password may still be logged in somewhere: end every session.
+        int revoked = sessions.revokeAll(user.getId(), "password reset");
+        log.info("Password reset for {} ({} session(s) ended)", Mask.phone(normalized), revoked);
     }
 
     private static boolean hasPassword(User u) {

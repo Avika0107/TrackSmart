@@ -6,6 +6,7 @@ import com.ekraah.model.User;
 import com.ekraah.repository.UserRepository;
 import com.ekraah.security.JwtService;
 import com.ekraah.security.LoginThrottle;
+import com.ekraah.security.SessionService;
 import com.ekraah.security.OtpService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ class AuthServiceTest {
     private UserRepository users;
     private PasswordEncoder encoder;
     private LoginThrottle throttle;
+    private SessionService sessions;
 
     @BeforeEach
     void setUp() {
@@ -47,7 +49,15 @@ class AuthServiceTest {
         users = mock(UserRepository.class);
         when(users.findByInboundAlias(any())).thenReturn(Optional.empty());
         throttle = new LoginThrottle();
-        service = new AuthService(otpService, jwt, users, encoder, new InboundAliases(users), throttle);
+        sessions = mock(SessionService.class);
+        when(sessions.create(any(), any())).thenAnswer(inv -> {
+            com.ekraah.model.Session s = new com.ekraah.model.Session();
+            s.setId("session-1");
+            s.setUserId(inv.getArgument(0));
+            s.setKind(inv.getArgument(1));
+            return new SessionService.Issued(s, "refresh-token-1");
+        });
+        service = new AuthService(otpService, jwt, users, encoder, new InboundAliases(users), throttle, sessions);
     }
 
     private User userWithPassword() {

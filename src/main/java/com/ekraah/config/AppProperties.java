@@ -38,7 +38,7 @@ public class AppProperties {
 
     public static class Jwt {
         private String secret;
-        private long ttlMinutes = 720;
+        private long ttlMinutes = 15;   // access token; the session behind it lasts 30 days
         public String getSecret() { return secret; }
         public void setSecret(String secret) { this.secret = secret; }
         public long getTtlMinutes() { return ttlMinutes; }

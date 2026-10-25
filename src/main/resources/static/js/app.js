@@ -1,4 +1,4 @@
-import { api, getToken, clearToken, isLoggedIn } from "./api.js";
+import { api, isLoggedIn, refresh, logoutSession } from "./api.js";
 import { el, toast, maskPhone } from "./ui.js";
 import { renderLogin } from "./views/auth.js";
 import { renderSetup } from "./views/setup.js";
@@ -36,10 +36,12 @@ export async function loadMe() {
   return state.me;
 }
 
-export function logout() {
+export async function logout() {
   stopAlertPolling();
-  clearToken();
   state.me = null;
+  // Must finish before navigating: the login route would otherwise renew the access token from
+  // the still-valid session cookie and log straight back in.
+  await logoutSession();
   location.hash = "#/login";
 }
 
@@ -184,7 +186,8 @@ async function route() {
   // and reopens it if state.demoOpen.
   document.querySelector(".demo-fab")?.remove();
   document.querySelector(".demo-drawer")?.remove();
-  if (!isLoggedIn()) { renderLogin(); return; }
+  // After a reload the access token is gone (memory only); the HttpOnly session cookie renews it.
+  if (!isLoggedIn() && !(await refresh())) { renderLogin(); return; }
   if (!state.me) {
     try { await loadMe(); } catch (e) { return; }
   }

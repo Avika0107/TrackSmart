@@ -25,7 +25,7 @@ server:
 app:
   jwt:
     secret: ${JWT_SECRET:ekraah-demo-secret-change-me-0123456789abcdef}
-    ttl-minutes: 720
+    ttl-minutes: 15          # access token; sessions (SessionService) last 30 days and are revocable
   otp:
     sender: demo            # demo | sms ("sms" sends via Fast2SMS; set FAST2SMS_API_KEY)
     ttl-minutes: 5

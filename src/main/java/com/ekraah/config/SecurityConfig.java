@@ -1,7 +1,7 @@
 package com.ekraah.config;
 
-import com.ekraah.repository.UserRepository;
 import com.ekraah.security.JwtAuthFilter;
+import com.ekraah.security.SessionService;
 import com.ekraah.security.JwtService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,7 +39,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtService jwt, UserRepository users) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtService jwt, SessionService sessions) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -47,7 +47,8 @@ public class SecurityConfig {
                         .requestMatchers(PUBLIC.toArray(new String[0])).permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
-                .addFilterBefore(new JwtAuthFilter(jwt, users::existsById), UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JwtAuthFilter(jwt, t -> sessions.isActive(t.sessionId(), t.userId())),
+                        UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
                     res.setStatus(401);
                     res.setContentType(MediaType.APPLICATION_JSON_VALUE);

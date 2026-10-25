@@ -27,14 +27,16 @@ public class UserService {
     private final AuditService audit;
     private final InboundAliases aliases;
     private final AlertService alerts;
+    private final com.ekraah.security.SessionService sessions;
 
     public UserService(UserRepository users, OrderRepository orders, AuditService audit, InboundAliases aliases,
-                       AlertService alerts) {
+                       AlertService alerts, com.ekraah.security.SessionService sessions) {
         this.users = users;
         this.orders = orders;
         this.audit = audit;
         this.aliases = aliases;
         this.alerts = alerts;
+        this.sessions = sessions;
     }
 
     /**
@@ -154,6 +156,7 @@ public class UserService {
         orders.deleteAll(orders.findByUserId(userId, Sort.unsorted()));
         audit.deleteForUser(userId);
         alerts.deleteForUser(userId);
+        sessions.deleteForUser(userId);   // ends every login on every device at once
         users.delete(user);
     }
 }

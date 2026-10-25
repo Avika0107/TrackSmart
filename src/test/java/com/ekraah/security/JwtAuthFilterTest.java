@@ -37,8 +37,8 @@ class JwtAuthFilterTest {
     }
 
     @Test
-    void tokenOfDeletedAccountIsRejected() throws ServletException, IOException {
-        JwtAuthFilter strict = new JwtAuthFilter(new JwtService(props()), userId -> false);
+    void tokenOfRevokedSessionIsRejected() throws ServletException, IOException {
+        JwtAuthFilter strict = new JwtAuthFilter(new JwtService(props()), t -> false);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
         request.addHeader("Authorization", "Bearer " + token);
         MockHttpServletResponse response = new MockHttpServletResponse();

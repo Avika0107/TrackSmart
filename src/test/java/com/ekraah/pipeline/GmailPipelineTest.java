@@ -382,4 +382,131 @@ class GmailPipelineTest {
         Map<String, Object> after = rest.exchange("/api/alerts", HttpMethod.GET, new HttpEntity<>(auth()), Map.class).getBody();
         assertThat(((Number) after.get("unread")).intValue()).isZero();
     }
+
+    // ---- sessions: short-lived access tokens, revocable refresh tokens ----------
+
+    /** Registers a fresh account and returns the raw HTTP response (Set-Cookie + body). */
+    @SuppressWarnings("unchecked")
+    private org.springframework.http.ResponseEntity<Map> registerFresh(String phone, String client) {
+        rest.postForEntity("/api/auth/request-otp", new HttpEntity<>(Map.of("phone", phone), json()), Map.class);
+        Map<String, Object> body = new java.util.HashMap<>(Map.of("phone", phone, "otp", "123456", "password", "session-test-pw"));
+        if (client != null) body.put("client", client);
+        return rest.postForEntity("/api/auth/register", new HttpEntity<>(body, json()), Map.class);
+    }
+
+    private static String cookieValue(org.springframework.http.ResponseEntity<?> res) {
+        String setCookie = res.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).as("Set-Cookie").isNotNull();
+        return setCookie.substring(setCookie.indexOf('=') + 1, setCookie.indexOf(';'));
+    }
+
+    @SuppressWarnings("unchecked")
+    private org.springframework.http.ResponseEntity<Map> refreshWithCookie(String refreshToken) {
+        HttpHeaders h = json();
+        h.add(HttpHeaders.COOKIE, "ekraah_refresh=" + refreshToken);
+        return rest.exchange("/api/auth/refresh", HttpMethod.POST, new HttpEntity<>(h), Map.class);
+    }
+
+    private int getOrdersStatus(String accessToken) {
+        HttpHeaders h = json();
+        h.setBearerAuth(accessToken);
+        return rest.exchange("/api/orders", HttpMethod.GET, new HttpEntity<>(h), String.class).getStatusCode().value();
+    }
+
+    @Test
+    @Order(16)
+    @SuppressWarnings("unchecked")
+    void webSessionUsesHttpOnlyCookieAndRotatesWithReuseDetection() {
+        var reg = registerFresh("9812345671", null);
+        assertThat(reg.getStatusCode().value()).isEqualTo(200);
+        String setCookie = reg.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(setCookie).contains("HttpOnly").contains("SameSite=Strict").contains("Path=/api/auth");
+        assertThat(reg.getBody().get("refreshToken")).isNull();                // never in the body for the web app
+        assertThat(((Number) reg.getBody().get("expiresIn")).longValue()).isEqualTo(15 * 60);
+
+        String first = cookieValue(reg);
+        var r1 = refreshWithCookie(first);
+        assertThat(r1.getStatusCode().value()).isEqualTo(200);
+        assertThat(r1.getBody().get("token")).isNotNull();
+        String second = cookieValue(r1);
+        assertThat(second).isNotEqualTo(first);                                // rotated
+
+        // Replaying the used token means someone else has a copy: the whole session ends.
+        assertThat(refreshWithCookie(first).getStatusCode().value()).isEqualTo(401);
+        assertThat(refreshWithCookie(second).getStatusCode().value()).isEqualTo(401);
+        assertThat(getOrdersStatus((String) r1.getBody().get("token"))).isEqualTo(401);
+    }
+
+    @Test
+    @Order(17)
+    void logoutEndsTheSessionImmediately() {
+        var reg = registerFresh("9812345672", null);
+        String access = (String) reg.getBody().get("token");
+        assertThat(getOrdersStatus(access)).isEqualTo(200);
+
+        HttpHeaders h = json();
+        h.add(HttpHeaders.COOKIE, "ekraah_refresh=" + cookieValue(reg));
+        var out = rest.exchange("/api/auth/logout", HttpMethod.POST, new HttpEntity<>(h), Void.class);
+        assertThat(out.getStatusCode().value()).isEqualTo(204);
+        assertThat(out.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).contains("Max-Age=0");
+
+        assertThat(getOrdersStatus(access)).isEqualTo(401);                    // not "valid until expiry"
+    }
+
+    @Test
+    @Order(18)
+    @SuppressWarnings("unchecked")
+    void extensionSessionIsScopedToImportAndEndsOnPasswordReset() {
+        var reg = registerFresh("9812345673", "extension");
+        String access = (String) reg.getBody().get("token");
+        String refresh = (String) reg.getBody().get("refreshToken");
+        assertThat(refresh).isNotBlank();
+        assertThat(reg.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).isNull();
+
+        // Can import, can't read or touch anything else.
+        HttpHeaders h = json();
+        h.setBearerAuth(access);
+        var imported = rest.exchange("/api/orders/import", HttpMethod.POST,
+                new HttpEntity<>(Map.of("platform", "MYNTRA", "trackingNumber", "11234567877"), h), Map.class);
+        assertThat(imported.getStatusCode().value()).isEqualTo(201);
+        assertThat(getOrdersStatus(access)).isEqualTo(403);
+        assertThat(rest.exchange("/api/me", HttpMethod.DELETE, new HttpEntity<>(h), String.class)
+                .getStatusCode().value()).isEqualTo(403);
+
+        // Body-based refresh works for the extension...
+        var renewed = rest.postForEntity("/api/auth/refresh",
+                new HttpEntity<>(Map.of("refreshToken", refresh), json()), Map.class);
+        assertThat(renewed.getStatusCode().value()).isEqualTo(200);
+        String newRefresh = (String) renewed.getBody().get("refreshToken");
+
+        // ...until the password is reset, which ends every session of the account.
+        rest.postForEntity("/api/auth/request-otp", new HttpEntity<>(Map.of("phone", "9812345673"), json()), Map.class);
+        var reset = rest.postForEntity("/api/auth/reset-password", new HttpEntity<>(
+                Map.of("phone", "9812345673", "otp", "123456", "password", "a-brand-new-pw"), json()), Map.class);
+        assertThat(reset.getStatusCode().value()).isEqualTo(200);
+        assertThat(rest.postForEntity("/api/auth/refresh",
+                new HttpEntity<>(Map.of("refreshToken", newRefresh), json()), Map.class).getStatusCode().value()).isEqualTo(401);
+        HttpHeaders h2 = json();
+        h2.setBearerAuth((String) renewed.getBody().get("token"));
+        assertThat(rest.exchange("/api/orders/import", HttpMethod.POST,
+                new HttpEntity<>(Map.of("platform", "MYNTRA", "trackingNumber", "11234567878"), h2), Map.class)
+                .getStatusCode().value()).isEqualTo(401);
+    }
+
+    @Test
+    @Order(19)
+    void logoutWithAJustRotatedTokenStillEndsTheSession() {
+        // Another tab refreshed first, so this tab's logout carries the previous refresh token.
+        var reg = registerFresh("9812345674", null);
+        String original = cookieValue(reg);
+        var renewed = refreshWithCookie(original);
+        String current = cookieValue(renewed);
+
+        HttpHeaders h = json();
+        h.add(HttpHeaders.COOKIE, "ekraah_refresh=" + original);
+        rest.exchange("/api/auth/logout", HttpMethod.POST, new HttpEntity<>(h), Void.class);
+
+        assertThat(refreshWithCookie(current).getStatusCode().value()).isEqualTo(401);
+        assertThat(getOrdersStatus((String) renewed.getBody().get("token"))).isEqualTo(401);
+    }
 }
