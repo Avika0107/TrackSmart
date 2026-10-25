@@ -1,4 +1,4 @@
-# 📦 ParcelPilot — Unified Order Tracker with Weather-Based Delay Alerts
+# 📦 EkRaah — Unified Order Tracker with Weather-Based Delay Alerts
 
 One dashboard for every Indian online-shopping order — Amazon, Flipkart, Myntra, Nykaa, AJIO — with live status and a **transparent, rule-based weather delay risk**.
 
