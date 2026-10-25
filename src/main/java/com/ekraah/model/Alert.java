@@ -9,7 +9,7 @@ import java.time.Instant;
 @Document("alerts")
 public class Alert {
 
-    public enum Kind { HIGH_RISK, EXCEPTION, OUT_FOR_DELIVERY }
+    public enum Kind { HIGH_RISK, EXCEPTION, OUT_FOR_DELIVERY, OVERDUE }
 
     @Id
     private String id;

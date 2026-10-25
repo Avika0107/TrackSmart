@@ -27,6 +27,8 @@
     <!-- 1.21.3 (Boot's default) speaks Docker API 1.32, which Docker Engine 29+ rejects (HTTP 400),
          so the Testcontainers pipeline test was always skipped. 1.21.4 negotiates a newer API. -->
     <testcontainers.version>1.21.4</testcontainers.version>
+    <!-- 6.x targets Spring 6 (Boot 3.5); 7.x needs Spring 7. -->
+    <shedlock.version>6.10.0</shedlock.version>
   </properties>
 
   <dependencies>
@@ -84,6 +86,18 @@
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
       <version>${springdoc.version}</version>
+    </dependency>
+
+    <!-- Scheduled jobs run on one instance at a time when several are deployed (lock in MongoDB) -->
+    <dependency>
+      <groupId>net.javacrumbs.shedlock</groupId>
+      <artifactId>shedlock-spring</artifactId>
+      <version>${shedlock.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>net.javacrumbs.shedlock</groupId>
+      <artifactId>shedlock-provider-mongo</artifactId>
+      <version>${shedlock.version}</version>
     </dependency>
 
     <!-- Loads .env into the Environment in dev (real env vars always win in prod) -->

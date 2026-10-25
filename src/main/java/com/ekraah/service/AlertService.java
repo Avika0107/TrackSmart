@@ -27,6 +27,7 @@ import java.util.Locale;
  *  - HIGH_RISK          risk level HIGH            at most once per order per day
  *  - EXCEPTION          courier reported a problem at most once per order per day
  *  - OUT_FOR_DELIVERY   arriving today             once per order
+ *  - OVERDUE            expected day has passed    once per order
  *
  * Users who switched notifications off in Settings get none. Alert failures never break the
  * order update that triggered them.
@@ -58,6 +59,10 @@ public class AlertService {
             if (order.getStatus() == OrderStatus.EXCEPTION) {
                 raise(order, Alert.Kind.EXCEPTION, Instant.now().minus(DAILY),
                         "The courier reported a problem with your " + name(order) + ". Open it for the latest update.");
+            }
+            if (order.isOverdue()) {
+                raise(order, Alert.Kind.OVERDUE, Instant.EPOCH,
+                        "Your " + name(order) + " is past its expected delivery date and still hasn't arrived.");
             }
             if (order.getRisk() != null && order.getRisk().getLevel() == RiskLevel.HIGH) {
                 String why = order.getRisk().getMessage() == null ? "" : " " + order.getRisk().getMessage();

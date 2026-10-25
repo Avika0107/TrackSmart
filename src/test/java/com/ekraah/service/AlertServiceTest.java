@@ -139,4 +139,16 @@ class AlertServiceTest {
         assertThat(service.latest("u1")).singleElement().extracting(Alert::getOrderId).isEqualTo("o1");
         verify(alerts).save(stored);
     }
+
+    @Test
+    void overdueOrderRaisesOneOverdueAlert() {
+        Order late = order(OrderStatus.IN_TRANSIT, null);
+        late.setEstimatedDelivery(Instant.now().minus(java.time.Duration.ofDays(3)));
+        service.evaluate(late);
+        Alert a = saved();
+        assertThat(a.getKind()).isEqualTo(Alert.Kind.OVERDUE);
+        assertThat(a.getMessage()).contains("past its expected delivery date");
+        verify(alerts).existsByUserIdAndTrackingNumberAndKindAndCreatedAtAfter(
+                "u1", "FMP4471203", Alert.Kind.OVERDUE, Instant.EPOCH);   // once per order
+    }
 }

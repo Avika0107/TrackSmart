@@ -30,12 +30,17 @@ export default {
     const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`));
     const signature = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-    const res = await fetch(env.EKRAAH_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-EkRaah-Timestamp": timestamp, "X-EkRaah-Signature": signature },
-      body,
-    });
-    // A 5xx makes Email Routing retry later; 4xx (bad signature, ignored mail) is final.
-    if (res.status >= 500) throw new Error(`EkRaah returned ${res.status}`);
+    // EkRaah answers 503 when it couldn't process the mail (e.g. database down): retry a few
+    // times with backoff. 4xx (bad signature) and 2xx (processed or deliberately ignored) are final.
+    for (let attempt = 1; ; attempt++) {
+      const res = await fetch(env.EKRAAH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-EkRaah-Timestamp": timestamp, "X-EkRaah-Signature": signature },
+        body,
+      }).catch(() => null);
+      if (res && res.status < 500) return;
+      if (attempt === 3) throw new Error(`EkRaah unavailable (${res ? res.status : "network error"})`);
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
   },
 };

@@ -29,6 +29,29 @@ public class Order {
     private Instant deliveredAt;
     private String retailerOrderId;        // retailer's own id (OD…, 402-…), when known
 
+    /** Delivery dates are Indian calendar days (ETAs are stored as noon IST). */
+    private static final java.time.ZoneId IST = java.time.ZoneId.of("Asia/Kolkata");
+
+    /**
+     * Still in flight but its expected delivery day has passed. Derived, never stored (Spring Data
+     * maps fields only), so it can't go stale; Jackson serialises it as "overdue" for the UI.
+     */
+    public boolean isOverdue() {
+        return isOverdue(java.time.LocalDate.now(IST));
+    }
+
+    public boolean isOverdue(java.time.LocalDate today) {
+        return status != null && OrderStatus.ACTIVE.contains(status) && estimatedDelivery != null
+                && estimatedDelivery.atZone(IST).toLocalDate().isBefore(today);
+    }
+
+    /** Whole days past the expected delivery day (0 when not overdue). */
+    public long getDaysOverdue() {
+        if (!isOverdue()) return 0;
+        return java.time.temporal.ChronoUnit.DAYS.between(
+                estimatedDelivery.atZone(IST).toLocalDate(), java.time.LocalDate.now(IST));
+    }
+
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
     public String getUserId() { return userId; }

@@ -69,6 +69,16 @@ public class MongoConfig {
         ensure(mongo, Session.class, "sessions(previousTokenHash)",   // refresh-token reuse detection
                 new Index().on("previousTokenHash", Sort.Direction.ASC));
         ensure(mongo, Session.class, "sessions(userId)", new Index().on("userId", Sort.Direction.ASC));
+        try {   // TTL: per-day tracking-budget counters (MongoDailyCounter) delete themselves after a week
+            mongo.indexOps("tracking_budget").ensureIndex(new Index().on("expireAt", Sort.Direction.ASC).expire(java.time.Duration.ZERO));
+        } catch (Exception e) {
+            log.warn("Could not create MongoDB index tracking_budget(expireAt) TTL: {}", e.getMessage());
+        }
+        try {   // TTL: MongoDB deletes OTP documents by itself once purgeAt has passed
+            mongo.indexOps("otps").ensureIndex(new Index().on("purgeAt", Sort.Direction.ASC).expire(java.time.Duration.ZERO));
+        } catch (Exception e) {
+            log.warn("Could not create MongoDB index otps(purgeAt) TTL: {}", e.getMessage());
+        }
         log.info("MongoDB index check finished");
     }
 
