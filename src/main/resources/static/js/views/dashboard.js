@@ -64,17 +64,24 @@ function statCards(stats) {
 }
 
 function attentionStrip(orders) {
-  const risky = orders.filter((o) => o.risk && o.risk.level !== "LOW"
-    && !isFinished(o.status));
+  // Overdue first (already late), then weather risk.
+  const risky = orders.filter((o) => !isFinished(o.status) && (o.overdue || (o.risk && o.risk.level !== "LOW")))
+    .sort((a, b) => Number(b.overdue) - Number(a.overdue));
   if (!risky.length) return null;
+  const store = (o) => o.platform.charAt(0) + o.platform.slice(1).toLowerCase();
   return el("div", { class: "attention" },
     el("div", { class: "t" }, "⚠️ Needs attention"),
     el("div", { class: "row" },
       ...risky.map((o) => el("button", {
-        class: `chip ${o.risk.level.toLowerCase()}`,
+        class: `chip ${o.overdue ? "high" : o.risk.level.toLowerCase()}`,
         onclick: () => openDetail(o.id),
         style: "cursor:pointer",
-      }, `${o.platform.charAt(0) + o.platform.slice(1).toLowerCase()} — ${maskTracking(o.trackingNumber)} (${o.risk.level.toLowerCase()} risk)`))));
+      }, `${store(o)} — ${maskTracking(o.trackingNumber)} (${o.overdue ? overdueText(o) : o.risk.level.toLowerCase() + " risk"})`))));
+}
+
+/** "overdue 3 days" */
+function overdueText(o) {
+  return o.daysOverdue === 1 ? "overdue 1 day" : `overdue ${o.daysOverdue} days`;
 }
 
 function filterBar(content) {
@@ -121,6 +128,9 @@ function orderGrid(orders, content) {
 }
 
 function orderCard(o, content, index) {
+  const overdue = o.overdue
+    ? el("span", { class: "chip high", title: "Past its expected delivery date and not delivered yet" }, "⏰ " + overdueText(o))
+    : null;
   const risk = o.risk && !isFinished(o.status)
     ? el("span", { class: `chip ${o.risk.level.toLowerCase()}`, title: o.risk.message || "" },
         riskIcon(o.risk.level), " ", o.risk.level === "LOW" ? "On track" : "Possible delay")
@@ -160,7 +170,7 @@ function orderCard(o, content, index) {
       o.trackingMode === "EMAIL_ONLY" ? el("span", { class: "chip", title: "Live scanning unavailable — followed via emails" }, "✉️ email-only") : null,
       o.trackingMode === "EMAIL_PENDING" ? el("span", { class: "chip", title: "Order placed — tracking number will appear when the shipping email arrives" }, "⏳ placed · tracking soon") : null,
       o.trackingMode === "PAGE_ONLY" ? el("span", { class: "chip", title: "The store doesn't share a tracking number — updated from its order page via the EkRaah extension" }, "🧩 via store page") : null,
-      risk),
+      overdue, risk),
     el("div", { class: "oc-track" }, o.trackingMode === "EMAIL_PENDING" ? "Tracking number on its way…" : maskTracking(o.trackingNumber)),
     el("div", { class: "progress", "aria-label": "Delivery progress" }, segs),
     el("div", { class: "oc-bottom" },
@@ -168,7 +178,7 @@ function orderCard(o, content, index) {
       el("span", {}, o.status === "DELIVERED" ? "Delivered " + timeAgo(o.deliveredAt)
         : o.status === "CANCELLED" ? "Cancelled " + timeAgo(o.lastUpdated)
         : o.status === "RETURNED" ? "Returned " + timeAgo(o.lastUpdated)
-        : "ETA " + fmtDate(o.estimatedDelivery)),
+        : (o.overdue ? "Was due " : "ETA ") + fmtDate(o.estimatedDelivery)),
       el("span", {}, timeAgo(o.lastUpdated))));
 }
 
@@ -217,6 +227,12 @@ export async function openDetail(orderId) {
     o.trackingMode === "EMAIL_ONLY" ? el("div", { class: "info-banner" },
       el("b", {}, "Tracked via email only. "),
       "Amazon's internal tracking numbers can't be read by third-party APIs, so this order follows the shipping emails forwarded from Amazon.") : null,
+
+    o.overdue ? el("div", { class: "info-banner", style: "border-color:var(--high)" },
+      el("b", {}, `⏰ ${overdueText(o).replace(/^o/, "O")}. `),
+      `It was expected on ${fmtDate(o.estimatedDelivery)} and hasn't been delivered. `
+        + (o.trackingMode === "API" ? "Refresh for the courier's latest scan, or contact the store if it stays stuck."
+          : "Check the store's order page for the latest status, or contact the store.")) : null,
 
     o.trackingMode === "PAGE_ONLY" ? el("div", { class: "info-banner" },
       el("b", {}, "Followed via the store's order page. "),

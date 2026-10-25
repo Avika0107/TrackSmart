@@ -5,7 +5,7 @@ import { api } from "./api.js";
 import { el, toast, timeAgo } from "./ui.js";
 
 const POLL_MS = 60_000;
-const ICON = { HIGH_RISK: "🌧️", EXCEPTION: "⚠️", OUT_FOR_DELIVERY: "🛵" };
+const ICON = { HIGH_RISK: "🌧️", EXCEPTION: "⚠️", OUT_FOR_DELIVERY: "🛵", OVERDUE: "⏰" };
 
 let latest = { unread: 0, alerts: [] };
 let seen = null;        // alert ids already shown to this tab (null until the first poll)

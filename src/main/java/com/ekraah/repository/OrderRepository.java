@@ -29,6 +29,8 @@ public interface OrderRepository extends MongoRepository<Order, String> {
 
     List<Order> findByStatusIn(List<OrderStatus> statuses);
 
+    List<Order> findByStatusInAndEstimatedDeliveryBefore(List<OrderStatus> statuses, Instant before);
+
     Optional<Order> findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(String userId, TrackingMode trackingMode);
 
     List<Order> findByStatusAndDeliveredAtBefore(OrderStatus status, Instant cutoff);

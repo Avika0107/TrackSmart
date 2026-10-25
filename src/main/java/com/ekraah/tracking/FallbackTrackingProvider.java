@@ -24,7 +24,15 @@ public class FallbackTrackingProvider implements TrackingProvider {
     private final TrackingBudget budget;
     private final String configuredName;
 
+    /** Unit tests: per-instance (in-memory) budget. */
     public FallbackTrackingProvider(List<TrackingProvider> providers, AppProperties props) {
+        this(providers, props, null);
+    }
+
+    /** The app: the daily budget is counted in MongoDB (MongoDailyCounter), shared by all instances. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public FallbackTrackingProvider(List<TrackingProvider> providers, AppProperties props,
+                                    TrackingBudget.DailyCounter sharedCounter) {
         this.mock = providers.stream().filter(p -> p instanceof MockTrackingProvider).findFirst().orElseThrow();
         for (TrackingProvider p : providers) {
             if (p == mock) continue;
@@ -33,7 +41,9 @@ public class FallbackTrackingProvider implements TrackingProvider {
         }
         this.configuredName = props.getTracking().getProvider() == null
                 ? "mock" : props.getTracking().getProvider().trim().toLowerCase();
-        this.budget = new TrackingBudget(props.getTracking().getDailyBudget());
+        this.budget = sharedCounter == null
+                ? new TrackingBudget(props.getTracking().getDailyBudget())
+                : new TrackingBudget(props.getTracking().getDailyBudget(), sharedCounter);
         log.info("Tracking: configured='{}', real providers available={}", configuredName, primary.keySet());
     }
 

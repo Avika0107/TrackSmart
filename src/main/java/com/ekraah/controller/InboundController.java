@@ -49,7 +49,7 @@ public class InboundController {
 
     @PostMapping("/email")
     @Operation(summary = "Inbound email from the signed email relay (HMAC, not JWT)")
-    public Map<String, Object> receive(@RequestHeader(value = "X-EkRaah-Timestamp", required = false) String timestamp,
+    public org.springframework.http.ResponseEntity<Map<String, Object>> receive(@RequestHeader(value = "X-EkRaah-Timestamp", required = false) String timestamp,
                                        @RequestHeader(value = "X-EkRaah-Signature", required = false) String signature,
                                        @RequestBody String body) throws Exception {
         AppProperties.Inbound cfg = props.getInbound();
@@ -64,7 +64,12 @@ public class InboundController {
                 text(json, "to"), null, null, text(json, "subject"),
                 text != null ? text : text(json, "html"),
                 text(json, "authenticationResults"), RawEmail.Channel.WEBHOOK);
-        return Map.of("outcome", processor.process(email));
+        String outcome = processor.process(email);
+        // 503 on a processing error (e.g. database down) so the relay retries instead of the mail
+        // being dropped; every other outcome — including "ignored" — is final.
+        return org.springframework.http.ResponseEntity
+                .status("ERROR".equals(outcome) ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK)
+                .body(Map.of("outcome", outcome));
     }
 
     private static void verifySignature(AppProperties.Inbound cfg, String timestamp, String signature, String body)

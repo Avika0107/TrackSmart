@@ -610,6 +610,17 @@ public class OrderService {
         return active.size();
     }
 
+    /**
+     * Daily: overdue-ness changes with the calendar, not with an order update, so orders nobody
+     * refreshes (email-only, store-page-only) would never raise their OVERDUE alert otherwise.
+     */
+    public int alertOverdueOrders() {
+        Instant startOfToday = LocalDate.now(ZoneId.of("Asia/Kolkata")).atStartOfDay(ZoneId.of("Asia/Kolkata")).toInstant();
+        List<Order> late = orders.findByStatusInAndEstimatedDeliveryBefore(List.copyOf(OrderStatus.ACTIVE), startOfToday);
+        late.forEach(alerts::evaluate);
+        return late.size();
+    }
+
     public Order forceStatus(String orderId, OrderStatus status) {
         Order order = orders.findById(orderId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order not found."));
@@ -631,8 +642,8 @@ public class OrderService {
         for (Order o : all) {
             byStatus.merge(String.valueOf(o.getStatus()), 1L, Long::sum);
             byPlatform.merge(String.valueOf(o.getPlatform()), 1L, Long::sum);
-            if (o.getRisk() != null && o.getRisk().getLevel() != com.ekraah.model.RiskLevel.LOW
-                    && !isFinished(o)) {
+            boolean riskyWeather = o.getRisk() != null && o.getRisk().getLevel() != com.ekraah.model.RiskLevel.LOW;
+            if ((riskyWeather || o.isOverdue()) && !isFinished(o)) {   // late already counts as at risk
                 atRisk++;
             } else if (!isFinished(o)) {
                 onTime++;

@@ -509,4 +509,55 @@ class GmailPipelineTest {
         assertThat(refreshWithCookie(current).getStatusCode().value()).isEqualTo(401);
         assertThat(getOrdersStatus((String) renewed.getBody().get("token"))).isEqualTo(401);
     }
+
+    // ---- several instances: shared OTPs, shared tracking budget, one scheduler run ----
+
+    @Autowired
+    org.springframework.data.mongodb.core.MongoTemplate mongoTemplate;
+
+    @Autowired
+    com.ekraah.tracking.MongoDailyCounter dailyCounter;
+
+    @Autowired
+    net.javacrumbs.shedlock.core.LockProvider lockProvider;
+
+    @Test
+    @Order(20)
+    void otpIsStoredInMongoSoAnyInstanceCanVerifyIt() {
+        rest.postForEntity("/api/auth/request-otp", new HttpEntity<>(Map.of("phone", "9812345675"), json()), Map.class);
+        org.bson.Document doc = mongoTemplate.getCollection("otps").find(new org.bson.Document("_id", "9812345675")).first();
+        assertThat(doc).isNotNull();
+        assertThat(doc.get("hash")).asString().isNotEqualTo("123456");      // stored hashed
+        assertThat(doc.get("purgeAt")).isNotNull();                          // TTL index removes it
+
+        var reg = registerFresh("9812345675", null);
+        assertThat(reg.getStatusCode().value()).isEqualTo(200);
+        assertThat(mongoTemplate.getCollection("otps").find(new org.bson.Document("_id", "9812345675")).first()).isNull();
+    }
+
+    @Test
+    @Order(21)
+    void trackingBudgetCountIsAtomicAcrossConcurrentCallers() throws Exception {
+        java.time.LocalDate day = java.time.LocalDate.of(2031, 1, 1);
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        var futures = new java.util.ArrayList<java.util.concurrent.Future<Long>>();
+        for (int i = 0; i < 20; i++) futures.add(pool.submit(() -> dailyCounter.incrementAndGet(day)));
+        var seen = new java.util.TreeSet<Long>();
+        for (var f : futures) seen.add(f.get());
+        pool.shutdown();
+        assertThat(seen).hasSize(20).first().isEqualTo(1L);   // 1..20, no lost or duplicated increments
+        assertThat(seen.last()).isEqualTo(20L);
+    }
+
+    @Test
+    @Order(22)
+    void scheduledJobLockIsHeldByOneInstanceAtATime() {
+        var config = new net.javacrumbs.shedlock.core.LockConfiguration(
+                java.time.Instant.now(), "it-job", java.time.Duration.ofMinutes(1), java.time.Duration.ZERO);
+        var first = lockProvider.lock(config);
+        assertThat(first).isPresent();
+        assertThat(lockProvider.lock(config)).isEmpty();         // a second instance must skip this run
+        first.get().unlock();
+        assertThat(lockProvider.lock(config)).isPresent();
+    }
 }

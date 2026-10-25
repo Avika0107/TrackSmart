@@ -30,11 +30,12 @@ Manual "add by number" ───────────────────
                      REST API (/api/**) ──▶ Static SPA (vanilla JS, served by Spring Boot)
 ```
 
-- **Email pipeline**: `ImapPoller` (IMAP, every 2 min, configurable) → resolve `demoinbox+ALIAS@gmail.com` → sender allowlist → pure `EmailParser` (per-courier regexes) → idempotent upsert by `Message-ID` → plain-language audit log.
+- **Email pipeline**: `ImapPoller` (IMAP, every 2 min, configurable; a failed email stays unread and is retried up to 5 times — `MailRetries`) → resolve `demoinbox+ALIAS@gmail.com` → sender allowlist → pure `EmailParser` (per-courier regexes) → idempotent upsert by `Message-ID` → plain-language audit log.
 - **Tracking**: `TrackingProvider` strategy — `MockTrackingProvider` (default, deterministic, zero keys), `Ship24Provider`, `Track17Provider`, wrapped by `FallbackTrackingProvider` (falls back to mock on error / missing key / **daily budget exhausted**). Cached 3 h.
 - **Weather**: `WeatherClient` strategy — `MockWeatherClient` (default, demo "stormy" toggle) or `OpenMeteoClient` (free, **no API key, non-commercial use only**). Cached 1 h; geocoding cached permanently.
 - **Risk engine** (`DelayRiskService`): precipitation > 20 mm/24 h → +3; thunderstorm WMO 95–99 → +3; wind > 40 km/h → +2; visibility < 1 km → +1; heat > 42 °C → +1. `OUT_FOR_DELIVERY` halves the score; `DELIVERED` hides risk. 0–2 LOW, 3–4 MEDIUM, 5+ HIGH. Every triggered rule is listed as a reason in the UI ("Why we think this").
-- **Delay alerts** (`AlertService`): when an order turns HIGH risk, the courier reports an exception, or it goes out for delivery, an alert appears under the 🔔 bell (and as a desktop notification while the app is open, if allowed). At most one per order per day (out-for-delivery once); off via Settings → Delay-risk notifications. In-app only for now: users have no email on file, and SMS alerts need a separate DLT template.
+- **Overdue orders**: an order still in flight after its expected delivery day (India time) is flagged overdue — red chip, top of *Needs attention*, counted as at risk — and raises one alert (a daily 09:00 IST job catches orders nobody refreshes).
+- **Delay alerts** (`AlertService`): when an order turns HIGH risk, becomes overdue, the courier reports an exception, or it goes out for delivery, an alert appears under the 🔔 bell (and as a desktop notification while the app is open, if allowed). At most one per order per day (out-for-delivery once); off via Settings → Delay-risk notifications. In-app only for now: users have no email on file, and SMS alerts need a separate DLT template.
 
 ## Milestone map (build order)
 
@@ -195,14 +196,14 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 - **AWB heuristics overlap** (Delhivery 10–18 digits vs Blue Dart 10 vs Xpressbees 12–15) — the sender-domain hint breaks ties; unknown formats are still tracked by carriers' auto-detect.
 - **Rule-based risk, not ML** — thresholds are configuration, visible in the UI; no accuracy metric is claimed or implied.
 - **Open-Meteo is free for non-commercial use only** — fine for a college project; budget for a commercial license in production.
-- **In-memory OTP store and daily budget** — single-instance assumptions (Redis for a cluster).
+- **Several instances** — OTPs and the daily tracking budget live in MongoDB, and scheduled jobs (IMAP poll, refresh, overdue check, cleanup) take a ShedLock lock in MongoDB so each run happens on one instance. Still per instance: the login throttle (each instance enforces its own limit) and the caches.
 - **Mock weather applies city-wide** — it's a demo mode; real Open-Meteo is per-city.
 - Sample emails are plain-text/HTML JSON (not raw `.eml`) so the simulator matches real IMAP output.
 
 ## Testing
 
 ```bash
-./mvnw test                                        # backend: 139 tests
+./mvnw test                                        # backend: 152 tests
 osascript -l JavaScript extension/test/extract.test.js   # extension page reading (macOS, no Node needed)
 node extension/test/extract.test.js                # …or with Node
 ```

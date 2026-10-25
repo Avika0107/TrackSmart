@@ -9,6 +9,7 @@ import jakarta.mail.Store;
 import jakarta.mail.search.FlagTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +17,8 @@ import java.util.Properties;
 
 /**
  * Connects to the demo Gmail inbox over IMAP every 2 minutes (configurable),
- * reads unseen messages through the pipeline and marks them seen.
+ * reads unseen messages through the pipeline and marks them seen — except ones that failed to
+ * process, which stay unread for a retry on the next poll (MailRetries, at most 5 attempts).
  * Nothing is logged except counts and masked identifiers.
  */
 @Service
@@ -26,14 +28,17 @@ public class ImapPoller {
 
     private final AppProperties props;
     private final GmailMessageProcessor processor;
+    private final MailRetries retries;
     private volatile boolean loggedDisabled = false;
 
-    public ImapPoller(AppProperties props, GmailMessageProcessor processor) {
+    public ImapPoller(AppProperties props, GmailMessageProcessor processor, MailRetries retries) {
         this.props = props;
         this.processor = processor;
+        this.retries = retries;
     }
 
     @Scheduled(fixedDelayString = "${app.mail.poll-interval-ms:120000}", initialDelay = 20_000)
+    @SchedulerLock(name = "imapPoll", lockAtMostFor = "PT10M", lockAtLeastFor = "PT30S")   // one poller across instances
     public void scheduledPoll() {
         pollOnce(false);
     }
@@ -63,12 +68,18 @@ public class ImapPoller {
             inbox.open(Folder.READ_WRITE);
             Message[] unread = inbox.search(new FlagTerm(new jakarta.mail.Flags(jakarta.mail.Flags.Flag.SEEN), false));
             int processed = 0;
+            int retrying = 0;
             for (Message message : unread) {
                 RawEmail raw = MimeUtils.safeToRawEmail(message);
-                processor.process(raw);
-                message.setFlag(jakarta.mail.Flags.Flag.SEEN, true); // even errors: never re-loop
+                String outcome = processor.process(raw);
+                if (retries.retryLater(raw.messageId(), outcome)) {
+                    retrying++;                       // stays unread: the next poll tries again
+                    continue;
+                }
+                message.setFlag(jakarta.mail.Flags.Flag.SEEN, true);
                 processed++;
             }
+            if (retrying > 0) log.warn("IMAP poll: {} email(s) failed and will be retried", retrying);
             inbox.close(true);
             store.close();
             if (processed > 0 || manual) {

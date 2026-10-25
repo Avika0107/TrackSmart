@@ -8,19 +8,17 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Phone -> OTP store, in memory (single instance assumption, fine for this project;
- * use Redis for a cluster). Rate limits: N requests per phone per 10 minutes,
+ * Phone -> OTP store (OtpStore): MongoDB in the app, so every instance sees the same codes;
+ * in memory for unit tests. Rate limits: N requests per phone per 10 minutes,
  * M wrong attempts per issued code.
  */
 @Service
 public class OtpService {
 
-    private static final Duration WINDOW = Duration.ofMinutes(10);
+    static final Duration WINDOW = Duration.ofMinutes(10);
 
     private final OtpSender sender;
     private final PasswordEncoder encoder;
@@ -29,11 +27,17 @@ public class OtpService {
     private final int maxAttempts;
     private final Duration ttl;
 
-    private record Entry(String hash, Instant expiresAt, int attempts, Instant windowStart, int requests) {}
+    private final OtpStore store;
 
-    private final Map<String, Entry> store = new ConcurrentHashMap<>();
-
+    /** Unit tests: in-memory store (single instance). */
     public OtpService(OtpSender sender, PasswordEncoder encoder, AppProperties props) {
+        this(sender, encoder, props, new OtpStore.InMemory());
+    }
+
+    /** The app: MongoOtpStore, so a code requested on one instance verifies on any other. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public OtpService(OtpSender sender, PasswordEncoder encoder, AppProperties props, OtpStore store) {
+        this.store = store;
         this.sender = sender;
         this.encoder = encoder;
         this.fixedDemoOtp = props.getOtp().getFixed() == null ? "" : props.getOtp().getFixed().trim();
@@ -43,7 +47,7 @@ public class OtpService {
     }
 
     public void requestOtp(String phone) {
-        Entry existing = store.get(phone);
+        OtpStore.Entry existing = store.get(phone).orElse(null);
         if (existing != null && Duration.between(existing.windowStart(), Instant.now()).compareTo(WINDOW) < 0) {
             if (existing.requests() >= maxPerWindow) {
                 throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "Too many OTP requests. Try again in a few minutes.");
@@ -53,7 +57,7 @@ public class OtpService {
                 ? String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000))
                 : fixedDemoOtp;
         sender.send(phone, otp);
-        store.put(phone, new Entry(encoder.encode(otp), Instant.now().plus(ttl), 0,
+        store.put(phone, new OtpStore.Entry(encoder.encode(otp), Instant.now().plus(ttl), 0,
                 existing != null && Duration.between(existing.windowStart(), Instant.now()).compareTo(WINDOW) < 0
                         ? existing.windowStart() : Instant.now(),
                 existing != null && Duration.between(existing.windowStart(), Instant.now()).compareTo(WINDOW) < 0
@@ -61,7 +65,7 @@ public class OtpService {
     }
 
     public void verify(String phone, String otp) {
-        Entry e = store.get(phone);
+        OtpStore.Entry e = store.get(phone).orElse(null);
         if (e == null || e.expiresAt().isBefore(Instant.now())) {
             store.remove(phone);
             throw new ApiException(HttpStatus.BAD_REQUEST, "No active code for this number. Request a new OTP.");
@@ -71,7 +75,7 @@ public class OtpService {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "Too many wrong attempts. Request a new OTP.");
         }
         if (!encoder.matches(otp, e.hash())) {
-            store.put(phone, new Entry(e.hash(), e.expiresAt(), e.attempts() + 1, e.windowStart(), e.requests()));
+            store.put(phone, new OtpStore.Entry(e.hash(), e.expiresAt(), e.attempts() + 1, e.windowStart(), e.requests()));
             throw new ApiException(HttpStatus.BAD_REQUEST, "Incorrect OTP. Please try again.");
         }
         store.remove(phone);

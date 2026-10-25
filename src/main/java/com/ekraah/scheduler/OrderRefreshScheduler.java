@@ -3,6 +3,7 @@ package com.ekraah.scheduler;
 import com.ekraah.service.OrderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -17,27 +18,42 @@ public class OrderRefreshScheduler {
 
     private final com.ekraah.service.AlertService alerts;
     private final com.ekraah.security.SessionService sessions;
+    private final com.ekraah.mail.MailRetries mailRetries;
 
     public OrderRefreshScheduler(OrderService orders, com.ekraah.config.AppProperties props,
-                                 com.ekraah.service.AlertService alerts, com.ekraah.security.SessionService sessions) {
+                                 com.ekraah.service.AlertService alerts, com.ekraah.security.SessionService sessions,
+                                 com.ekraah.mail.MailRetries mailRetries) {
         this.orders = orders;
         this.props = props;
         this.alerts = alerts;
         this.sessions = sessions;
+        this.mailRetries = mailRetries;
     }
 
     @Scheduled(fixedDelayString = "${app.refresh.interval-ms:14400000}", initialDelay = 45_000)
+    @SchedulerLock(name = "refreshActiveOrders", lockAtMostFor = "PT1H", lockAtLeastFor = "PT1M")
     public void refreshActiveOrders() {
         int updated = orders.refreshAllDue();
         if (updated > 0) log.info("Scheduled refresh updated {} order(s)", updated);
     }
 
+    /** 09:00 India time: tell users about orders whose expected delivery day has passed. */
+    @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Kolkata")
+    @SchedulerLock(name = "alertOverdueOrders", lockAtMostFor = "PT30M", lockAtLeastFor = "PT5M")
+    public void alertOverdueOrders() {
+        int late = orders.alertOverdueOrders();
+        if (late > 0) log.info("Overdue check: {} order(s) past their expected delivery day", late);
+    }
+
     @Scheduled(cron = "${app.cleanup.cron:0 0 3 * * SUN}")
+    @SchedulerLock(name = "weeklyCleanup", lockAtMostFor = "PT30M", lockAtLeastFor = "PT5M")
     public void cleanupDeliveredTimelines() {
         int cleared = orders.deleteOldTimelines(props.getCleanup().getKeepDeliveredDays());
         if (cleared > 0) log.info("Cleanup cleared timelines of {} old delivered order(s)", cleared);
         long oldAlerts = alerts.deleteOlderThan(java.time.Duration.ofDays(30));   // alerts are a feed, not an archive
         if (oldAlerts > 0) log.info("Cleanup removed {} alert(s) older than 30 days", oldAlerts);
+        long staleFailures = mailRetries.deleteOlderThan(java.time.Duration.ofDays(30));
+        if (staleFailures > 0) log.info("Cleanup removed {} old email-failure record(s)", staleFailures);
         long expired = sessions.deleteExpired();
         if (expired > 0) log.info("Cleanup removed {} expired session(s)", expired);
     }
