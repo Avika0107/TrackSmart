@@ -5,7 +5,7 @@ spring:
     default: demo
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/parcelpilot}
+      uri: ${MONGODB_URI:mongodb://localhost:27017/ekraah}
 
 management:
   endpoints:
@@ -24,7 +24,7 @@ server:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:parcelpilot-demo-secret-change-me-0123456789abcdef}
+    secret: ${JWT_SECRET:ekraah-demo-secret-change-me-0123456789abcdef}
     ttl-minutes: 720
   otp:
     sender: demo            # demo | sms ("sms" sends via Fast2SMS; set FAST2SMS_API_KEY)

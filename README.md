@@ -3,7 +3,7 @@
 One dashboard for every Indian online-shopping order — Amazon, Flipkart, Myntra, Nykaa, AJIO — with live status and a **transparent, rule-based weather delay risk**.
 
 > **Two honest truths baked into the product**
-> 1. Retailers do **not** share order data by phone number. Phone number = login only. The **data source is email forwarding**: you forward retailer shipping emails to your personal ParcelPilot address.
+> 1. Retailers do **not** share order data by phone number. Phone number = login only. The **data source is email forwarding**: you forward retailer shipping emails to your personal EkRaah address.
 > 2. Amazon's internal TBA tracking IDs and order IDs **cannot** be tracked by third-party APIs. Amazon orders are shown as **"Tracked via email only"** cards using the delivery date parsed from the email.
 >
 > The delay prediction is a **rule-based risk score using live weather** (thresholds visible in the UI), **not a trained ML model**. No accuracy is ever claimed.
@@ -75,7 +75,7 @@ docker compose up --build      # app on :8080, mongo on :27017
 ### MongoDB Atlas instead of local
 
 ```bash
-export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/parcelpilot"
+export MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net/ekraah"
 ./mvnw spring-boot:run
 ```
 
@@ -151,7 +151,7 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 
 ## Assumptions & honest limitations
 
-- **One shared demo inbox** — anyone with the Gmail credentials sees the inbox; aliases only partition ParcelPilot's data. Production would use per-user inboxes or inbound-email webhooks.
+- **One shared demo inbox** — anyone with the Gmail credentials sees the inbox; aliases only partition EkRaah's data. Production would use per-user inboxes or inbound-email webhooks.
 - **AWB heuristics overlap** (Delhivery 10–18 digits vs Blue Dart 10 vs Xpressbees 12–15) — the sender-domain hint breaks ties; unknown formats are still tracked by carriers' auto-detect.
 - **Rule-based risk, not ML** — thresholds are configuration, visible in the UI; no accuracy metric is claimed or implied.
 - **Open-Meteo is free for non-commercial use only** — fine for a college project; budget for a commercial license in production.

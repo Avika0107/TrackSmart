@@ -11,8 +11,8 @@
     <relativePath/>
   </parent>
 
-  <groupId>com.parcelpilot</groupId>
-  <artifactId>parcelpilot</artifactId>
+  <groupId>com.ekraah</groupId>
+  <artifactId>ekraah</artifactId>
   <version>0.1.0</version>
   <name>EkRaah</name>
   <description>Unified order tracker with weather-based delay alerts</description>
