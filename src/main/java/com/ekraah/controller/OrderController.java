@@ -1,5 +1,6 @@
 package com.ekraah.controller;
 
+import com.ekraah.dto.OrderDtos.AttachTrackingRequest;
 import com.ekraah.dto.OrderDtos.CreateOrderRequest;
 import com.ekraah.dto.OrderDtos.ImportOrderRequest;
 import com.ekraah.dto.OrderDtos.ImportOrderResponse;
@@ -72,10 +73,16 @@ public class OrderController {
     @Operation(summary = "Import an order read by the browser extension from a retailer's order page")
     public ResponseEntity<ImportOrderResponse> importOrder(@AuthenticationPrincipal String userId,
                                                            @Valid @RequestBody ImportOrderRequest body) {
-        var result = orders.importFromExtension(userId, body.platform(), body.trackingNumber(),
-                body.courierHint(), body.retailerOrderId());
+        var result = orders.importFromExtension(userId, body);
         HttpStatus status = result.outcome() == OrderService.ImportOutcome.CREATED ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(new ImportOrderResponse(result.outcome().name(), result.order()));
+    }
+
+    @PostMapping("/{id}/tracking")
+    @Operation(summary = "Add a courier tracking number to an order that has none (e.g. a Flipkart order)")
+    public Order attachTracking(@AuthenticationPrincipal String userId, @PathVariable String id,
+                                @Valid @RequestBody AttachTrackingRequest body) {
+        return orders.attachTracking(userId, id, body.trackingNumber());
     }
 
     @DeleteMapping("/{id}")

@@ -156,6 +156,7 @@ function orderCard(o, content, index) {
       o.courier ? el("span", { class: "chip courier" }, o.courier) : null,
       o.trackingMode === "EMAIL_ONLY" ? el("span", { class: "chip", title: "Live scanning unavailable — followed via emails" }, "✉️ email-only") : null,
       o.trackingMode === "EMAIL_PENDING" ? el("span", { class: "chip", title: "Order placed — tracking number will appear when the shipping email arrives" }, "⏳ placed · tracking soon") : null,
+      o.trackingMode === "PAGE_ONLY" ? el("span", { class: "chip", title: "The store doesn't share a tracking number — updated from its order page via the EkRaah extension" }, "🧩 via store page") : null,
       risk),
     el("div", { class: "oc-track" }, o.trackingMode === "EMAIL_PENDING" ? "Tracking number on its way…" : maskTracking(o.trackingNumber)),
     el("div", { class: "progress", "aria-label": "Delivery progress" }, segs),
@@ -206,6 +207,15 @@ export async function openDetail(orderId) {
     o.trackingMode === "EMAIL_ONLY" ? el("div", { class: "info-banner" },
       el("b", {}, "Tracked via email only. "),
       "Amazon's internal tracking numbers can't be read by third-party APIs, so this order follows the shipping emails forwarded from Amazon.") : null,
+
+    o.trackingMode === "PAGE_ONLY" ? el("div", { class: "info-banner" },
+      el("b", {}, "Followed via the store's order page. "),
+      o.status === "DELIVERED" || o.status === "CANCELLED"
+        ? "This order is finished, so the store's order ID is all we keep — nothing left to track."
+        : "This store shows only its order ID, not the courier's tracking number. Click Send in the EkRaah extension on the order page to update the status — or, if the courier sent you a tracking number (e.g. by SMS), add it below for live tracking.") : null,
+
+    o.trackingMode === "PAGE_ONLY" && o.status !== "DELIVERED" && o.status !== "CANCELLED"
+      ? attachTrackingForm(o, close) : null,
 
     o.trackingMode === "EMAIL_PENDING" ? el("div", { class: "info-banner" },
       el("b", {}, "Order placed — tracking number coming. "),
@@ -263,6 +273,26 @@ function timeline(o) {
         el("div", { class: "d" }, ev.description || "Update"),
         el("div", { class: "m" },
           [ev.location, fmtDateTime(ev.time)].filter(Boolean).join(" · "))))));
+}
+
+/* ---------------- add tracking number to a page-only order ---------------- */
+
+function attachTrackingForm(o, close) {
+  const input = el("input", { class: "input", placeholder: "e.g. FMPP1234567890 from the courier's SMS", "aria-label": "Courier tracking number" });
+  const btn = el("button", { class: "btn small", style: "margin-top:8px" }, "Track live");
+  btn.addEventListener("click", async () => {
+    const number = input.value.trim();
+    if (!number) { input.focus(); return; }
+    btn.disabled = true;
+    try {
+      await api(`/orders/${o.id}/tracking`, { method: "POST", body: { trackingNumber: number } });
+      toast("Tracking number added — fetching live status", "ok");
+      close(); renderDashboard();
+    } catch (e) { toast(e.message, "err"); btn.disabled = false; }
+  });
+  input.addEventListener("keydown", (e) => e.key === "Enter" && btn.click());
+  return el("div", { style: "margin:10px 0" },
+    el("label", { class: "lbl" }, "Have the courier's tracking number?"), input, btn);
 }
 
 /* ---------------- add order modal ---------------- */

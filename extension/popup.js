@@ -48,12 +48,22 @@ const OUTCOME_TEXT = {
 
 function showSuccess(outcome, order, facts) {
   result.className = "result ok";
-  const rows = [
-    ["Store", facts.platform],
-    ["Courier", order.courier || facts.courierHint || "Detecting…"],
-    ["Tracking", maskTracking(order.trackingNumber)],
-    ["Status", order.status],
-  ];
+  const pageOnly = order.trackingMode === "PAGE_ONLY";
+  const rows = pageOnly
+    ? [
+        ["Store", facts.platform],
+        ["Order ID", maskTracking(order.retailerOrderId)],
+        ["Status", order.status],
+        ["Tracking", order.status === "DELIVERED"
+          ? "Not needed — already delivered"
+          : "Not on this page — click Send again later, or add the courier's number on the dashboard"],
+      ]
+    : [
+        ["Store", facts.platform],
+        ["Courier", order.courier || facts.courierHint || "Detecting…"],
+        ["Tracking", maskTracking(order.trackingNumber)],
+        ["Status", order.status],
+      ];
   const dl = document.createElement("dl");
   for (const [k, v] of rows) {
     const dt = document.createElement("dt");
@@ -149,5 +159,7 @@ logoutBtn.addEventListener("click", async () => {
 //   so a malicious value (e.g. a crafted courier name) can't inject HTML into the popup.
 // - busy(): prevents double-clicks sending the same order twice while the request is in flight.
 // - The password field is cleared after a successful login; only the JWT is kept (in background).
+// - PAGE_ONLY (e.g. Flipkart): the store shows only its order id, so the popup shows that id and
+//   says how to refresh the card, instead of an empty "Tracking" row.
 // - maskPhone / maskTracking mirror the backend's Mask utility so the popup never shows full ids.
 // - If a send fails with a "log in" message (expired/revoked JWT), we switch to the login view.

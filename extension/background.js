@@ -89,6 +89,9 @@ async function sendOrder(tabId) {
       trackingNumber: facts.trackingNumber,
       courierHint: facts.courierHint,
       retailerOrderId: facts.retailerOrderId,
+      status: facts.status,                      // page status; DELIVERED -> server uses the order id
+      expectedDelivery: facts.expectedDelivery,  // "yyyy-mm-dd" or null
+      deliveredOn: facts.deliveredOn,
     },
   });
   return { outcome, order, facts };
@@ -120,7 +123,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // - api(): same contract as the SPA's api.js — backend errors arrive as { error: "..." }.
 // - sendOrder(): executeScript with two files runs them in order in the same isolated world,
 //   so extract.js can read the rules retailers.js defined; results.at(-1) is extract.js's value.
-// - Only platform / trackingNumber / courierHint / retailerOrderId are sent — never page text,
+// - Only the extracted facts are sent (ids, courier hint, status, two dates) — never page text,
 //   matching the "facts only" privacy rule of the email pipeline.
 // - /orders/import replies { outcome: CREATED | UPDATED | ALREADY_TRACKED, order }
 //   (OrderController.importOrder -> OrderService.importFromExtension).

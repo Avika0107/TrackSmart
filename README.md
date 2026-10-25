@@ -115,7 +115,8 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 | `GET /me`, `PATCH /me/settings`, `DELETE /me` | Profile, theme/notifications, full data deletion |
 | `GET /orders?status=&platform=&q=&sort=` | Dashboard list (auto-recomputes stale risk >1 h) |
 | `GET /orders/{id}`, `POST /orders`, `DELETE /orders/{id}`, `POST /orders/{id}/refresh` | Detail (+weather), add by number, delete, force refresh |
-| `POST /orders/import` | Browser extension import: `{platform, trackingNumber, courierHint?, retailerOrderId?}` → `{outcome: CREATED \| UPDATED \| ALREADY_TRACKED, order}` |
+| `POST /orders/import` | Browser extension import: `{platform, trackingNumber?, courierHint?, retailerOrderId?, status?, expectedDelivery?, deliveredOn?}` → `{outcome: CREATED \| UPDATED \| ALREADY_TRACKED, order}` |
+| `POST /orders/{id}/tracking` | Add a courier tracking number to an order-id-only card → live tracking |
 | `GET /orders/detect-courier?number=` | Courier auto-detection |
 | `GET /setup/info` | Alias, forwarding address, Gmail code, verification status |
 | `GET /setup/gmail-filter.xml` | Downloadable Gmail filter (allowlist pre-filled) |
@@ -156,8 +157,15 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 - **Load it:** `chrome://extensions` → Developer mode → *Load unpacked* → select `extension/`. Log in with your EkRaah phone + password in the popup.
 - **Permissions:** `activeTab` + `scripting` (the clicked tab only, nothing runs in the background on retailer sites), `storage` (JWT). `host_permissions` lists only the backend (`http://localhost:8080` — change for deployment).
 - **Per-site rules** live in `extension/content/retailers.js` (order-page URLs, labels like "Tracking ID"/"AWB", courier names). When a retailer changes its page, that's the only file to update. AWB formats there must mirror `CourierDetector`.
-- **Server side** re-validates the number with `CourierDetector`, is idempotent (same AWB → `ALREADY_TRACKED`), merges into an `EMAIL_PENDING` card of the same platform, keeps Amazon TBA ids `EMAIL_ONLY`, and writes an audit entry. The page's courier name only breaks ties between digit-only couriers.
-- **Limits:** desktop browsers only (Chrome on Android has no extensions); order-page URL patterns are best-effort and need checking against real accounts; multi-package orders import the first tracking number shown.
+- **Which key is used** (any store):
+  | Page shows | Order status | Result |
+  |---|---|---|
+  | Tracking number | not delivered | Live tracking (`API`; Amazon TBA stays `EMAIL_ONLY`) |
+  | Tracking number | delivered | Order id only — nothing left to track, no API quota spent |
+  | Order id only (Flipkart never shows the Ekart AWB) | any | `PAGE_ONLY` card: status + dates from the page; click Send again to update |
+- **Flipkart + courier SMS:** a `PAGE_ONLY` card that isn't delivered has an *Add tracking number* box on the dashboard (`POST /orders/{id}/tracking`) — paste the Ekart number from the SMS and it switches to live tracking.
+- **Server side** re-validates numbers with `CourierDetector`, is idempotent (same AWB or order id → updates/returns the existing card), merges into an `EMAIL_PENDING` card of the same platform, never lets a page overwrite a live-tracked order, and writes an audit entry. The page's courier name only breaks ties between digit-only couriers.
+- **Limits:** desktop browsers only (Chrome on Android has no extensions); order-page URL patterns and status phrases are best-effort and need checking against real accounts; multi-package orders import the first tracking number shown; `PAGE_ONLY` cards have no weather risk (no courier location).
 
 ## Privacy design
 
