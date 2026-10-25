@@ -38,7 +38,7 @@ public class AuthController {
         boolean real = "sms".equals(props.getOtp().getSender())
                 && props.getOtp().getFast2smsKey() != null && !props.getOtp().getFast2smsKey().isBlank();
         return Map.of(
-                "demoMode", !fixed && !real,   // demo profile pins app.otp.fixed, prod leaves it blank
+                "demoMode", fixed && !real,    // demo profile pins app.otp.fixed, prod leaves it blank
                 "otpMode", real ? "sms" : props.getOtp().getSender());
     }
 

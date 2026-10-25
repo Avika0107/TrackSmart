@@ -24,6 +24,9 @@
     <springdoc.version>2.8.9</springdoc.version>
     <springdotenv.version>5.1.0</springdotenv.version>
     <dotenv.version>3.2.0</dotenv.version>
+    <!-- 1.21.3 (Boot's default) speaks Docker API 1.32, which Docker Engine 29+ rejects (HTTP 400),
+         so the Testcontainers pipeline test was always skipped. 1.21.4 negotiates a newer API. -->
+    <testcontainers.version>1.21.4</testcontainers.version>
   </properties>
 
   <dependencies>

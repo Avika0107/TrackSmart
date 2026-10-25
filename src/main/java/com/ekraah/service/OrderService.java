@@ -1,5 +1,6 @@
 package com.ekraah.service;
 
+import com.ekraah.dto.OrderDtos.ImportOrderRequest;
 import com.ekraah.dto.RawEmail;
 import com.ekraah.exception.ApiException;
 import com.ekraah.mail.ParsedEmail;
@@ -70,8 +71,11 @@ public class OrderService {
     public EmailResult upsertFromEmail(User user, ParsedEmail parsed, RawEmail email) {
         String domain = domainOf(email.from());
 
+        // A replayed email (IMAP re-delivery, re-forward) must not re-apply: check both the email
+        // that created an order and every email applied to one since.
         if (email.messageId() != null
-                && orders.findByUserIdAndSourceMessageId(user.getId(), email.messageId()).isPresent()) {
+                && (orders.findByUserIdAndSourceMessageId(user.getId(), email.messageId()).isPresent()
+                    || orders.existsByUserIdAndMessageIds(user.getId(), email.messageId()))) {
             audit.record(user.getId(), domain, AuditAction.DUPLICATE,
                     "Duplicate message ignored (AWB " + Mask.tracking(parsed.trackingNumber()) + ")");
             return new EmailResult(EmailOutcome.DUPLICATE, null);
@@ -136,6 +140,7 @@ public class OrderService {
         } else {
             computeRisk(order);
         }
+        rememberMessage(order, email);
         orders.save(order);
 
         String summary = created
@@ -181,6 +186,7 @@ public class OrderService {
         order.getEvents().add(new OrderEvent("Order cancelled — cancellation email received from " + domain, null, Instant.now()));
         order.setLastUpdated(Instant.now());
         order.setRisk(null); // terminal: no delay risk on a cancelled order
+        rememberMessage(order, email);
         orders.save(order);
         audit.record(user.getId(), domain, AuditAction.PROCESSED,
                 "Order " + Mask.tracking(order.getTrackingNumber()) + " marked CANCELLED from " + domain + " email");
@@ -200,6 +206,7 @@ public class OrderService {
             p.getEvents().add(new OrderEvent("Order confirmation received from " + domain, null, Instant.now()));
             if (parsed.estimatedDelivery() != null) p.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
             p.setLastUpdated(Instant.now());
+            rememberMessage(p, email);
             orders.save(p);
             audit.record(user.getId(), domain, AuditAction.PROCESSED,
                     "Order confirmation from " + domain + " (tracking number not issued yet)");
@@ -217,6 +224,7 @@ public class OrderService {
         if (parsed.estimatedDelivery() != null) order.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
         order.getEvents().add(new OrderEvent("Order placed — confirmation email received from " + domain, null, Instant.now()));
         order.setLastUpdated(Instant.now());
+        rememberMessage(order, email);
         orders.save(order);
         audit.record(user.getId(), domain, AuditAction.PROCESSED,
                 "Order confirmation from " + domain + " (tracking number not issued yet)");
@@ -238,6 +246,7 @@ public class OrderService {
                 null, Instant.now()));
         pending.setLastUpdated(Instant.now());
         computeRisk(pending);
+        rememberMessage(pending, email);
         orders.save(pending);
         audit.record(pending.getUserId(), domain, AuditAction.PROCESSED,
                 "Extracted AWB ending " + last4(parsed.trackingNumber()) + " from " + domain
@@ -303,16 +312,35 @@ public class OrderService {
 
     /**
      * Facts read by the extension from a retailer's order page. Idempotent: sending the same
-     * order twice returns the existing card. Merges into an EMAIL_PENDING placeholder of the
-     * same platform, like the shipping email would. The server re-validates the number itself.
+     * order again updates or returns the existing card instead of duplicating it.
+     *  - With a tracking number: live tracking, re-validated by CourierDetector. Upgrades the
+     *    PAGE_ONLY card of the same retailer order id, or an EMAIL_PENDING placeholder.
+     *  - Order id only (Flipkart never shows the Ekart AWB), or any order the page says is already
+     *    delivered: a PAGE_ONLY card whose status and dates come from the page; clicking Send
+     *    again later refreshes them. A tracking number can be attached later (attachTracking).
      */
-    public ImportResult importFromExtension(String userId, Platform platform, String trackingNumber,
-                                            String courierHint, String retailerOrderId) {
-        String number = trackingNumber.trim().toUpperCase(Locale.ROOT);
-        String courier = resolveCourier(number, courierHint)
+    public ImportResult importFromExtension(String userId, ImportOrderRequest req) {
+        String number = blankToNull(req.trackingNumber());
+        String orderId = blankToNull(req.retailerOrderId());
+        if (number == null && orderId == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "No tracking number or order id was found on this page.");
+        }
+        if (orderId != null) orderId = orderId.toUpperCase(Locale.ROOT);
+        String source = "browser extension (" + req.platform().name().toLowerCase(Locale.ROOT) + ")";
+        // Already finished (delivered / returned / cancelled): nothing left to track, so don't spend
+        // tracking-API quota — the order id and the page's facts are enough. Needs an order id as key.
+        boolean finished = req.status() != null && req.status().isTerminal();
+        return number == null || (finished && orderId != null)
+                ? importByOrderId(userId, req, orderId, source)
+                : importByTrackingNumber(userId, req, number.toUpperCase(Locale.ROOT), orderId, source);
+    }
+
+    private ImportResult importByTrackingNumber(String userId, ImportOrderRequest req, String number,
+                                                String orderId, String source) {
+        Platform platform = req.platform();
+        String courier = resolveCourier(number, req.courierHint())
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
                         "That doesn't look like a tracking number we support yet."));
-        String source = "browser extension (" + platform.name().toLowerCase(Locale.ROOT) + ")";
 
         Optional<Order> existing = orders.findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(userId, number);
         if (existing.isPresent()) {
@@ -321,26 +349,27 @@ public class OrderService {
             return new ImportResult(ImportOutcome.ALREADY_TRACKED, existing.get());
         }
 
-        Optional<Order> pending = orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(
-                userId, TrackingMode.EMAIL_PENDING)
-                .filter(o -> o.getPlatform() == platform && o.getStatus() != OrderStatus.CANCELLED);
-        boolean created = pending.isEmpty();
+        // A card we already have for this order, still without a tracking number: the page-only
+        // card of the same order id, else the newest email-confirmation placeholder of this store.
+        Optional<Order> placeholder = Optional.ofNullable(orderId)
+                .flatMap(id -> orders.findFirstByUserIdAndRetailerOrderIdOrderByLastUpdatedDesc(userId, id))
+                .filter(o -> o.getTrackingMode() == TrackingMode.PAGE_ONLY);
+        if (placeholder.isEmpty()) placeholder = pendingPlaceholder(userId, platform);
+        boolean created = placeholder.isEmpty();
 
-        Order order = pending.orElseGet(Order::new);
+        Order order = placeholder.orElseGet(Order::new);
         if (created) {
             order.setUserId(userId);
             order.setPlatform(platform);
             order.setSource(OrderSource.EXTENSION);
             order.setStatus(OrderStatus.SHIPPED);   // a tracking number on the page means it shipped
-            order.getEvents().add(new OrderEvent("Imported from the " + platform + " order page via browser extension",
-                    null, Instant.now()));
+            addEvent(order, "Imported from the " + platform + " order page via browser extension");
         } else {
-            order.getEvents().add(new OrderEvent("Tracking number added from the " + platform
-                    + " order page via browser extension", null, Instant.now()));
+            addEvent(order, "Tracking number added from the " + platform + " order page via browser extension");
         }
         order.setTrackingNumber(number);
         order.setCourier(courier);
-        if (retailerOrderId != null && !retailerOrderId.isBlank()) order.setRetailerOrderId(retailerOrderId.trim());
+        if (orderId != null) order.setRetailerOrderId(orderId);
         // Amazon TBA/order ids cannot go to third-party APIs: email-only mode.
         order.setTrackingMode(courier.equals("Amazon") ? TrackingMode.EMAIL_ONLY : TrackingMode.API);
         if (order.getStatus() == OrderStatus.ORDERED) order.setStatus(OrderStatus.SHIPPED);
@@ -354,9 +383,140 @@ public class OrderService {
 
         audit.record(userId, source, AuditAction.PROCESSED,
                 (created ? "Imported AWB ending " : "Added AWB ending ") + last4(number)
-                        + (created ? "" : " to a pending order") + " via browser extension");
-        log.info("Extension import -> {} order {}", created ? "created" : "upgraded pending", Mask.tracking(number));
+                        + (created ? "" : " to an existing order") + " via browser extension");
+        log.info("Extension import -> {} order {}", created ? "created" : "upgraded", Mask.tracking(number));
         return new ImportResult(created ? ImportOutcome.CREATED : ImportOutcome.UPDATED, saved);
+    }
+
+    /** Page shows only the retailer's order id: follow the order through that page. */
+    private ImportResult importByOrderId(String userId, ImportOrderRequest req, String orderId, String source) {
+        Optional<Order> existing = orders.findFirstByUserIdAndRetailerOrderIdOrderByLastUpdatedDesc(userId, orderId);
+        if (existing.isPresent() && !isPlaceholder(existing.get())) {
+            // Already followed by tracking number: live/email data beats what the page says.
+            audit.record(userId, source, AuditAction.DUPLICATE,
+                    "Order " + Mask.tracking(orderId) + " already tracked — extension import skipped");
+            return new ImportResult(ImportOutcome.ALREADY_TRACKED, existing.get());
+        }
+
+        Optional<Order> target = existing.or(() -> pendingPlaceholder(userId, req.platform()));
+        boolean created = target.isEmpty();
+        Order order = target.orElseGet(Order::new);
+        if (created) {
+            order.setUserId(userId);
+            order.setPlatform(req.platform());
+            order.setSource(OrderSource.EXTENSION);
+            order.setTrackingNumber(orderId);       // shown on the card; the store gives no AWB
+            order.setTrackingMode(TrackingMode.PAGE_ONLY);
+            order.setStatus(OrderStatus.ORDERED);
+            addEvent(order, "Imported from the " + req.platform()
+                    + " order page via browser extension (the store shows no tracking number)");
+        }
+        // An EMAIL_PENDING placeholder keeps its mode, so the shipping email can still upgrade it.
+        order.setRetailerOrderId(orderId);
+        applyPageFacts(order, req);
+        order.setLastUpdated(Instant.now());
+        computeRisk(order);                         // no courier city -> no weather risk
+        Order saved = orders.save(order);
+
+        audit.record(userId, source, AuditAction.PROCESSED,
+                (created ? "Imported order " : "Updated order ") + Mask.tracking(orderId)
+                        + " from the store's order page via browser extension (status " + saved.getStatus() + ")");
+        log.info("Extension import -> {} page-only order {}", created ? "created" : "updated", Mask.tracking(orderId));
+        return new ImportResult(created ? ImportOutcome.CREATED : ImportOutcome.UPDATED, saved);
+    }
+
+    /**
+     * The user typed the courier's tracking number into a card that had none (e.g. a Flipkart
+     * order — the Ekart number arrives by SMS, never on the page): switch it to live tracking.
+     */
+    public Order attachTracking(String userId, String orderId, String trackingNumber) {
+        Order order = getOwned(userId, orderId);
+        if (!isPlaceholder(order)) {
+            throw new ApiException(HttpStatus.CONFLICT, "This order already has a tracking number.");
+        }
+        if (isFinished(order)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This order is already " + order.getStatus().name().toLowerCase(Locale.ROOT) + " — nothing left to track.");
+        }
+        String number = trackingNumber.trim().toUpperCase(Locale.ROOT);
+        String courier = resolveCourier(number, null)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                        "That doesn't look like a tracking number we support yet."));
+        orders.findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(userId, number)
+                .filter(other -> !other.getId().equals(order.getId()))
+                .ifPresent(other -> {
+                    throw new ApiException(HttpStatus.CONFLICT, "You are already tracking this number on another card.");
+                });
+
+        if (order.getRetailerOrderId() == null && order.getTrackingMode() == TrackingMode.PAGE_ONLY) {
+            order.setRetailerOrderId(order.getTrackingNumber());   // keep the store's id before replacing it
+        }
+        order.setTrackingNumber(number);
+        order.setCourier(courier);
+        order.setTrackingMode(courier.equals("Amazon") ? TrackingMode.EMAIL_ONLY : TrackingMode.API);
+        if (order.getStatus() == OrderStatus.ORDERED || order.getStatus() == OrderStatus.UNKNOWN) {
+            order.setStatus(OrderStatus.SHIPPED);
+        }
+        addEvent(order, "Tracking number added manually — now tracked via " + courier);
+        if (order.getTrackingMode() == TrackingMode.API) {
+            applyTracking(order, tracking.trackForce(number, courier));
+        }
+        order.setLastUpdated(Instant.now());
+        computeRisk(order);
+        Order saved = orders.save(order);
+        audit.record(userId, "manual", AuditAction.PROCESSED,
+                "Tracking number ending " + last4(number) + " added to order " + Mask.tracking(order.getRetailerOrderId()));
+        log.info("Attached AWB {} to order {}", Mask.tracking(number), Mask.tracking(order.getRetailerOrderId()));
+        return saved;
+    }
+
+    /** Status and dates printed on the order page; only used for cards without live tracking. */
+    private void applyPageFacts(Order order, ImportOrderRequest req) {
+        OrderStatus before = order.getStatus();
+        if (req.status() != null) order.setStatus(req.status());
+        if (req.expectedDelivery() != null) order.setEstimatedDelivery(etaInstant(req.expectedDelivery()));
+        if (order.getStatus() == OrderStatus.DELIVERED) {
+            if (req.deliveredOn() != null) order.setDeliveredAt(etaInstant(req.deliveredOn()));
+            else if (order.getDeliveredAt() == null) order.setDeliveredAt(Instant.now());
+        }
+        if (order.getStatus() != before) {
+            addEvent(order, "Status from the " + order.getPlatform() + " order page: " + order.getStatus());
+        }
+    }
+
+    /** Newest email-confirmation placeholder of this store that isn't already tied to another order id. */
+    private Optional<Order> pendingPlaceholder(String userId, Platform platform) {
+        return orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(userId, TrackingMode.EMAIL_PENDING)
+                .filter(o -> o.getPlatform() == platform && o.getStatus() != OrderStatus.CANCELLED
+                        && o.getRetailerOrderId() == null);
+    }
+
+    /** Records an applied email so a replay of it is recognised as a duplicate. */
+    private static void rememberMessage(Order order, RawEmail email) {
+        if (email.messageId() == null) return;
+        List<String> ids = new java.util.ArrayList<>(order.getMessageIds() == null ? List.of() : order.getMessageIds());
+        if (!ids.contains(email.messageId())) ids.add(email.messageId());
+        order.setMessageIds(ids);
+    }
+
+    /** Delivered, cancelled or returned: no tracking, no risk, not counted as on-time. */
+    private static boolean isFinished(Order o) {
+        return o.getStatus() != null && o.getStatus().isTerminal();
+    }
+
+    private static boolean isPlaceholder(Order o) {
+        return o.getTrackingMode() == TrackingMode.PAGE_ONLY || o.getTrackingMode() == TrackingMode.EMAIL_PENDING;
+    }
+
+    /** Timelines cleared by deleteOldTimelines are immutable List.of(), so copy before adding. */
+    private static void addEvent(Order order, String description) {
+        List<OrderEvent> events = new java.util.ArrayList<>(order.getEvents() == null ? List.of() : order.getEvents());
+        events.add(new OrderEvent(description, null, Instant.now()));
+        order.setEvents(events);
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     /**
@@ -383,6 +543,10 @@ public class OrderService {
         if (order.getTrackingMode() == TrackingMode.EMAIL_ONLY) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "This order is tracked via retailer email only, so live scanning isn't available.");
+        }
+        if (order.getTrackingMode() == TrackingMode.PAGE_ONLY) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "This store doesn't share a tracking number. Open the order on the store's site and click Send in the EkRaah extension to update it.");
         }
         applyTracking(order, tracking.trackForce(order.getTrackingNumber(), order.getCourier()));
         order.setLastUpdated(Instant.now());
@@ -430,6 +594,19 @@ public class OrderService {
         return old.size();
     }
 
+    /**
+     * Demo weather toggle: re-score every active order now. Stored risk is otherwise only
+     * recomputed once it is older than an hour, so the toggle had no visible effect.
+     */
+    public int recomputeActiveRisk() {
+        List<Order> active = orders.findByStatusIn(List.copyOf(OrderStatus.ACTIVE));
+        for (Order order : active) {
+            computeRisk(order);
+            orders.save(order);
+        }
+        return active.size();
+    }
+
     public Order forceStatus(String orderId, OrderStatus status) {
         Order order = orders.findById(orderId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Order not found."));
@@ -452,9 +629,9 @@ public class OrderService {
             byStatus.merge(String.valueOf(o.getStatus()), 1L, Long::sum);
             byPlatform.merge(String.valueOf(o.getPlatform()), 1L, Long::sum);
             if (o.getRisk() != null && o.getRisk().getLevel() != com.ekraah.model.RiskLevel.LOW
-                    && o.getStatus() != OrderStatus.DELIVERED) {
+                    && !isFinished(o)) {
                 atRisk++;
-            } else if (o.getStatus() != OrderStatus.DELIVERED) {
+            } else if (!isFinished(o)) {
                 onTime++;
             }
         }
@@ -472,8 +649,8 @@ public class OrderService {
 
     /** Rules only: city + status + weather -> risk. Called on refresh and when a read finds stale risk. */
     public void computeRisk(Order order) {
-        if (order.getStatus() == OrderStatus.DELIVERED) {
-            order.setRisk(null); // UI hides risk for delivered orders
+        if (isFinished(order)) {
+            order.setRisk(null); // UI hides risk for delivered / cancelled / returned orders
             return;
         }
         if (order.getCurrentCity() == null || order.getCurrentCity().isBlank()) {
@@ -498,7 +675,7 @@ public class OrderService {
     private void refreshStaleRisk(List<Order> ordersList) {
         boolean dirty = false;
         for (Order o : ordersList) {
-            if (o.getStatus() == OrderStatus.DELIVERED || o.getCurrentCity() == null) continue;
+            if (isFinished(o) || o.getCurrentCity() == null) continue;
             boolean stale = o.getRisk() == null || o.getRisk().getComputedAt() == null
                     || Duration.between(o.getRisk().getComputedAt(), Instant.now()).compareTo(RISK_STALE_AFTER) > 0;
             if (stale) {

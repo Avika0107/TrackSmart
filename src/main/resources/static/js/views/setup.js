@@ -119,7 +119,7 @@ export function renderSetup() {
     return el("div", {},
       statusLine,
       el("p", { style: "font-size:12.5px;color:var(--text-soft);margin-top:8px" },
-        "Tip: use the Demo Control Panel (bottom-left) to simulate an order email instead of waiting."),
+        "Tip: use the Demo Control Panel (bottom-right of the Dashboard) to simulate an order email instead of waiting."),
       info?.confirmationCode ? el("p", { style: "font-size:13px;margin-top:8px" },
         el("span", { class: "chip medium" }, "Gmail code: " + info.confirmationCode)) : null);
   }

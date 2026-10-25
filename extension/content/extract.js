@@ -20,7 +20,7 @@
 
   const MAX_CHARS = 200_000;                       // order pages are small; guards against huge pages
   const text = (document.body?.innerText || "")
-    .replace(/ /g, " ")                       // &nbsp; -> normal space so \s matches
+    .replace(/\u00a0/g, " ")                       // &nbsp; -> normal space so \s matches
     .slice(0, MAX_CHARS);
 
   // ---------- 3. Tracking number: label-anchored, then format-validated ----------
@@ -49,30 +49,65 @@
     return hit ? hit.name : null;                  // null -> backend's CourierDetector decides
   }
 
-  // ---------- 5. Retailer order id (helps merge with an EMAIL_PENDING card) ----------
+  // ---------- 5. Retailer order id (key for order-id-only imports and merging) ----------
 
   const orderIdMatch = site.orderId ? text.match(site.orderId) : null;
   const retailerOrderId = orderIdMatch ? orderIdMatch[1] : null;
 
-  if (!tracking) {
-    return {
-      error: "No tracking number on this page yet — it usually appears once the order ships.",
-      platform: site.platform,
-      retailerOrderId,
-    };
+  // ---------- 6. Status and dates as the page prints them (every store) ----------
+
+  const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  /** "Wed, 15th Oct" / "Oct 24, 2026" -> "2026-10-15". Year guessed from `direction` when missing. */
+  function toIsoDate(raw, direction) {
+    const s = raw.toLowerCase().replace(/(\d)(st|nd|rd|th)\b/g, "$1").replace(/,/g, " ");
+    const words = s.split(/\s+/).filter(Boolean);
+    const monthIdx = words.findIndex((w) => MONTHS.includes(w.slice(0, 3)));
+    const day = words.find((w) => /^\d{1,2}$/.test(w));
+    const year = words.find((w) => /^\d{4}$/.test(w));
+    if (monthIdx < 0 || !day) return null;
+
+    const today = new Date();
+    const month = MONTHS.indexOf(words[monthIdx].slice(0, 3));
+    let y = year ? Number(year) : today.getFullYear();
+    let d = new Date(y, month, Number(day));
+    if (!year) {
+      // "Delivered on 28 Dec" read in January is last year; "Delivery by 3 Jan" read in December is next year.
+      if (direction === "past" && d > today) d = new Date(--y, month, Number(day));
+      if (direction === "future" && (today - d) / 86_400_000 > 180) d = new Date(++y, month, Number(day));
+    }
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  const statusHit = rules.pageStatus.map((r) => ({ r, m: text.match(r.match) })).find((x) => x.m);
+  const status = statusHit ? statusHit.r.status : null;
+  const deliveredOn = status === "DELIVERED" && statusHit.m[1] ? toIsoDate(statusHit.m[1], "past") : null;
+  const etaMatch = status === "DELIVERED" ? null : text.match(rules.expectedDelivery);
+  const expectedDelivery = etaMatch ? toIsoDate(etaMatch[1], "future") : null;
+
+  // ---------- 7. Result ----------
+  // Tracking number on the page -> live tracking (unless already delivered: the server then uses
+  // the order id). No tracking number (Flipkart) -> the order id + what the page says.
+
+  if (!tracking && !retailerOrderId) {
+    return { error: "Couldn't find a tracking number or order id on this page. Open the order's details page." };
   }
 
   return {
     platform: site.platform,
-    trackingNumber: tracking.trackingNumber,
-    courierHint: findCourier(tracking.at),
+    trackingNumber: tracking ? tracking.trackingNumber : null,
+    courierHint: tracking ? findCourier(tracking.at) : null,
     retailerOrderId,
+    status,                                      // null -> server keeps/sets ORDERED
+    expectedDelivery,
+    deliveredOn,
   };
 })();
 
 // - The whole file is one IIFE expression: chrome.scripting.executeScript returns the value of
 //   the last statement, so this object becomes results.at(-1).result in background.js.
-// - Every exit is either { error } or the four facts — the popup shows `error` verbatim, so the
+// - Every exit is either { error } or the facts object — the popup shows `error` verbatim, so the
 //   messages are written for the shopper, not the developer.
 // - innerText (not textContent): only text the user can actually see, so hidden templates or
 //   script data on the page aren't scanned.
@@ -83,5 +118,12 @@
 //   "We ship with Delhivery, Blue Dart…" would otherwise give a wrong hint.
 // - Multi-package orders (common on Amazon) return the first tracking number on the page;
 //   handling several shipments is a possible later improvement.
-// - No tracking found: we return an error rather than sending only the order id — with no AWB
-//   there is nothing to track, and the email pipeline already creates ORDERED placeholders.
+// - Status/dates are read on every store and always sent. With a tracking number the server
+//   tracks live — unless the page says DELIVERED, then it keeps just the order id (nothing left to
+//   track, no API quota spent). Without one (Flipkart never shows the Ekart AWB) it keeps a
+//   PAGE_ONLY card from the order id; clicking Send again later refreshes it.
+// - pageStatus rules are tried in order and need a date after the label, because the page also
+//   lists upcoming steps ("Delivered") that haven't happened yet. No match -> status null.
+// - toIsoDate(): dates go to the server as "yyyy-mm-dd" (LocalDate). Pages often omit the year,
+//   so "past" dates (delivered) never land in the future and "future" ones (ETA) roll forward.
+// - The ETA is skipped for delivered orders: their page may still show the old "Delivery by" line.

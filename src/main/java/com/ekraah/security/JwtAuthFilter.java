@@ -12,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Authenticates /api/** calls from the Bearer token. The principal is the userId
@@ -20,9 +21,20 @@ import java.util.List;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwt;
+    private final Predicate<String> userExists;
 
     public JwtAuthFilter(JwtService jwt) {
+        this(jwt, userId -> true);
+    }
+
+    /**
+     * @param userExists checked after the signature: a JWT stays valid until it expires, so
+     *                   without this a deleted account (DELETE /api/me) could keep using its token
+     *                   and recreate data for a user that no longer exists.
+     */
+    public JwtAuthFilter(JwtService jwt, Predicate<String> userExists) {
         this.jwt = jwt;
+        this.userExists = userExists;
     }
 
     @Override
@@ -38,6 +50,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 String userId = jwt.verify(header.substring(7));
+                if (!userExists.test(userId)) throw new IllegalStateException("account deleted");
                 var auth = new UsernamePasswordAuthenticationToken(
                         userId, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
                 SecurityContextHolder.getContext().setAuthentication(auth);

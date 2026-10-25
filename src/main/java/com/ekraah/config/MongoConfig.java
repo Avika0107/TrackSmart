@@ -13,6 +13,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.data.mongodb.core.index.PartialIndexFilter;
 import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.schema.JsonSchemaObject;
 
 /**
  * Indexes are created programmatically so they exist on any fresh database.
@@ -33,21 +34,36 @@ public class MongoConfig {
     }
 
     private static void ensureIndexes(MongoTemplate mongo) {
+        // Each index is created on its own: one failure (e.g. a duplicate in old data) must not
+        // silently skip the rest, as the user-uniqueness indexes are what enforce one account per phone.
+        ensure(mongo, Order.class, "orders(userId,status)",
+                new Index().on("userId", Sort.Direction.ASC).on("status", Sort.Direction.ASC));
+        // Partial filter uses $type: Mongo rejects $ne/$not in partial indexes ("Expression not
+        // supported"), which used to abort index creation entirely.
+        ensure(mongo, Order.class, "orders(userId,sourceMessageId) unique",
+                new Index().on("userId", Sort.Direction.ASC).on("sourceMessageId", Sort.Direction.ASC)
+                        .unique()
+                        .partial(PartialIndexFilter.of(new Criteria("sourceMessageId").type(JsonSchemaObject.Type.STRING))));
+        ensure(mongo, Order.class, "orders(userId,messageIds)",
+                new Index().on("userId", Sort.Direction.ASC).on("messageIds", Sort.Direction.ASC));
+        ensure(mongo, Order.class, "orders(userId,trackingNumber)",
+                new Index().on("userId", Sort.Direction.ASC).on("trackingNumber", Sort.Direction.ASC));
+        ensure(mongo, Order.class, "orders(userId,retailerOrderId)",
+                new Index().on("userId", Sort.Direction.ASC).on("retailerOrderId", Sort.Direction.ASC));
+
+        ensure(mongo, User.class, "users(phone) unique", new Index().on("phone", Sort.Direction.ASC).unique());
+        ensure(mongo, User.class, "users(inboundAlias) unique", new Index().on("inboundAlias", Sort.Direction.ASC).unique());
+
+        ensure(mongo, AuditLog.class, "audit(userId,time)",
+                new Index().on("userId", Sort.Direction.ASC).on("time", Sort.Direction.DESC));
+        log.info("MongoDB index check finished");
+    }
+
+    private static void ensure(MongoTemplate mongo, Class<?> entity, String name, Index index) {
         try {
-            mongo.indexOps(Order.class).ensureIndex(new Index().on("userId", Sort.Direction.ASC).on("status", Sort.Direction.ASC));
-            mongo.indexOps(Order.class).ensureIndex(new Index().on("userId", Sort.Direction.ASC)
-                    .on("sourceMessageId", Sort.Direction.ASC)
-                    .unique()
-                    .partial(PartialIndexFilter.of(new Criteria("sourceMessageId").ne(null))));
-            mongo.indexOps(Order.class).ensureIndex(new Index().on("userId", Sort.Direction.ASC).on("trackingNumber", Sort.Direction.ASC));
-
-            mongo.indexOps(User.class).ensureIndex(new Index().on("phone", Sort.Direction.ASC).unique());
-            mongo.indexOps(User.class).ensureIndex(new Index().on("inboundAlias", Sort.Direction.ASC).unique());
-
-            mongo.indexOps(AuditLog.class).ensureIndex(new Index().on("userId", Sort.Direction.ASC).on("time", Sort.Direction.DESC));
-            log.info("MongoDB indexes ensured");
+            mongo.indexOps(entity).ensureIndex(index);
         } catch (Exception e) {
-            log.warn("Could not create MongoDB indexes (database unreachable?): {}", e.getMessage());
+            log.warn("Could not create MongoDB index {} (database unreachable or conflicting data?): {}", name, e.getMessage());
         }
     }
 }

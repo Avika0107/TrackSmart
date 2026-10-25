@@ -17,7 +17,7 @@ export function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem("pp_theme", theme);
   const btn = document.getElementById("theme-toggle");
-  if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+  if (btn) btn.textContent = themeLabel(theme);
   if (state.me) api("/me/settings", { method: "PATCH", body: { theme } }).catch(() => {});
 }
 
@@ -27,7 +27,11 @@ export function initTheme() {
 }
 
 export async function loadMe() {
-  state.me = await api("/me");
+  // Demo mode is needed by every view (demo chip, Demo Control Panel), not only Setup,
+  // so it is loaded with the profile before the first view renders.
+  const [me, mode] = await Promise.all([api("/me"), api("/auth/mode").catch(() => ({}))]);
+  state.me = me;
+  state.demoMode = mode.demoMode === true;
   return state.me;
 }
 
@@ -42,7 +46,12 @@ function themeToggle() {
   return el("button", {
     id: "theme-toggle", class: "navlink", style: "margin-top:6px", "aria-label": "Toggle light/dark theme",
     onclick: () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"),
-  }, dark ? "☀️ Light mode" : "🌙 Dark mode");
+  }, themeLabel(dark ? "dark" : "light"));
+}
+
+/** The toggle offers the other theme; one helper so a toggle keeps the same label format. */
+function themeLabel(theme) {
+  return theme === "dark" ? "☀️ Light mode" : "🌙 Dark mode";
 }
 
 const NAV = [
@@ -167,6 +176,11 @@ function greeting() {
 
 async function route() {
   const hash = location.hash || "#/dashboard";
+  // The Demo Control Panel belongs to the dashboard (its actions re-render it), so it is removed
+  // on every route change — including logout to the login page; renderDashboard re-mounts it,
+  // and reopens it if state.demoOpen.
+  document.querySelector(".demo-fab")?.remove();
+  document.querySelector(".demo-drawer")?.remove();
   if (!isLoggedIn()) { renderLogin(); return; }
   if (!state.me) {
     try { await loadMe(); } catch (e) { return; }

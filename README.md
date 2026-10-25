@@ -47,7 +47,7 @@ Manual "add by number" ───────────────────
 
 ## Tech stack
 
-Java 17 · Spring Boot 3.5 (Web, Validation, Security, Scheduling, Data MongoDB, Actuator, Mail) · Maven · MongoDB (Atlas M0 or local Docker) · Jakarta Mail (IMAP) · jsoup · Caffeine · JJWT · springdoc-openapi (Swagger UI) · Vanilla-JS SPA (ES modules, no build step) with Chart.js + canvas-confetti via CDN · JUnit 5, Mockito-free pure unit tests, MockWebServer, Testcontainers.
+Java 25 · Spring Boot 3.5 (Web, Validation, Security, Scheduling, Data MongoDB, Actuator, Mail) · Maven · MongoDB (Atlas M0 or local Docker) · Jakarta Mail (IMAP) · jsoup · Caffeine · JJWT · springdoc-openapi (Swagger UI) · Vanilla-JS SPA (ES modules, no build step) with Chart.js + canvas-confetti via CDN · JUnit 5, Mockito, MockWebServer, Testcontainers.
 
 ## Run in demo mode in under 5 minutes
 
@@ -57,13 +57,15 @@ docker compose up mongo -d
 
 # 2. Run the app (demo profile is the default: mock providers, fixed OTP, dev endpoints)
 ./mvnw spring-boot:run          # Windows: mvnw.cmd spring-boot:run
+#    The project targets Java 25 (as the Dockerfile does). The code also builds on Java 21:
+#    ./mvnw -Djava.version=21 spring-boot:run
 
 # 3. Open http://localhost:8080
 ```
 
 - Log in with **phone + password** — knowing the number alone is not enough. New accounts use **Create account** (phone + OTP + choose password); **Forgot password** resets it via OTP. Demo OTP is **123456** (clearly labelled *Demo mode* in the UI).
 - Demo credentials: `9999999999` / `demo1234` (any other number can create its own account).
-- The **Demo Control Panel** (bottom-left, demo profile only) lets you simulate each of the 9 sample emails, toggle 🌧️ stormy / 🌤️ weather, force status changes and trigger an inbox poll — a full 3-minute demo with zero waiting.
+- The **Demo Control Panel** (bottom-right of the dashboard, demo profile only) lets you simulate each of the 9 sample emails, toggle 🌧️ stormy / 🌤️ weather, force status changes and trigger an inbox poll — a full 3-minute demo with zero waiting.
 - Seed data loads on first run: demo user `9999999999` (alias `rahul55`) with 6 varied orders including one HIGH-risk stormy example and one delivered.
 
 ### Or run everything containerized
@@ -115,7 +117,8 @@ Copy `.env.example` → `.env`. Nothing is required for the demo; these unlock r
 | `GET /me`, `PATCH /me/settings`, `DELETE /me` | Profile, theme/notifications, full data deletion |
 | `GET /orders?status=&platform=&q=&sort=` | Dashboard list (auto-recomputes stale risk >1 h) |
 | `GET /orders/{id}`, `POST /orders`, `DELETE /orders/{id}`, `POST /orders/{id}/refresh` | Detail (+weather), add by number, delete, force refresh |
-| `POST /orders/import` | Browser extension import: `{platform, trackingNumber, courierHint?, retailerOrderId?}` → `{outcome: CREATED \| UPDATED \| ALREADY_TRACKED, order}` |
+| `POST /orders/import` | Browser extension import: `{platform, trackingNumber?, courierHint?, retailerOrderId?, status?, expectedDelivery?, deliveredOn?}` → `{outcome: CREATED \| UPDATED \| ALREADY_TRACKED, order}` |
+| `POST /orders/{id}/tracking` | Add a courier tracking number to an order-id-only card → live tracking |
 | `GET /orders/detect-courier?number=` | Courier auto-detection |
 | `GET /setup/info` | Alias, forwarding address, Gmail code, verification status |
 | `GET /setup/gmail-filter.xml` | Downloadable Gmail filter (allowlist pre-filled) |
@@ -156,8 +159,15 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 - **Load it:** `chrome://extensions` → Developer mode → *Load unpacked* → select `extension/`. Log in with your EkRaah phone + password in the popup.
 - **Permissions:** `activeTab` + `scripting` (the clicked tab only, nothing runs in the background on retailer sites), `storage` (JWT). `host_permissions` lists only the backend (`http://localhost:8080` — change for deployment).
 - **Per-site rules** live in `extension/content/retailers.js` (order-page URLs, labels like "Tracking ID"/"AWB", courier names). When a retailer changes its page, that's the only file to update. AWB formats there must mirror `CourierDetector`.
-- **Server side** re-validates the number with `CourierDetector`, is idempotent (same AWB → `ALREADY_TRACKED`), merges into an `EMAIL_PENDING` card of the same platform, keeps Amazon TBA ids `EMAIL_ONLY`, and writes an audit entry. The page's courier name only breaks ties between digit-only couriers.
-- **Limits:** desktop browsers only (Chrome on Android has no extensions); order-page URL patterns are best-effort and need checking against real accounts; multi-package orders import the first tracking number shown.
+- **Which key is used** (any store):
+  | Page shows | Order status | Result |
+  |---|---|---|
+  | Tracking number | not delivered | Live tracking (`API`; Amazon TBA stays `EMAIL_ONLY`) |
+  | Tracking number | delivered / returned / cancelled | Order id only — nothing left to track, no API quota spent |
+  | Order id only (Flipkart never shows the Ekart AWB) | any | `PAGE_ONLY` card: status + dates from the page; click Send again to update |
+- **Flipkart + courier SMS:** a `PAGE_ONLY` card that isn't delivered has an *Add tracking number* box on the dashboard (`POST /orders/{id}/tracking`) — paste the Ekart number from the SMS and it switches to live tracking.
+- **Server side** re-validates numbers with `CourierDetector`, is idempotent (same AWB or order id → updates/returns the existing card), merges into an `EMAIL_PENDING` card of the same platform, never lets a page overwrite a live-tracked order, and writes an audit entry. The page's courier name only breaks ties between digit-only couriers.
+- **Limits:** desktop browsers only (Chrome on Android has no extensions); order-page URL patterns and status phrases are best-effort and need checking against real accounts; multi-package orders import the first tracking number shown; `PAGE_ONLY` cards have no weather risk (no courier location).
 
 ## Privacy design
 
@@ -180,10 +190,14 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
 ## Testing
 
 ```bash
-./mvnw test
+./mvnw test                                        # backend: 107 tests
+osascript -l JavaScript extension/test/extract.test.js   # extension page reading (macOS, no Node needed)
+node extension/test/extract.test.js                # …or with Node
 ```
 
-64 tests: `EmailParser` (per-courier regexes, promo-mail rejection, ETA formats, facts-only record), `DelayRiskService` (threshold boundaries, OFD halving, delivered), `AliasResolver`, `CourierDetector`, `FallbackTrackingProvider` (failure/budget/unknown), `OtpService` (rate limits), `JwtService`/`JwtAuthFilter`, DTO guard (no `userId` in any request DTO), `OpenMeteoClient` (MockWebServer), `MockTrackingProvider` (determinism) and a full **`GmailPipelineTest`** integration test (Testcontainers Mongo; auto-skipped when Docker isn't running) covering login → simulate → dedupe → allowlist → audit → stormy risk.
+Backend: `EmailParser` (per-courier regexes, promo-mail rejection, ETA formats, facts-only record), `DelayRiskService` (threshold boundaries, OFD halving, delivered), `AliasResolver`, `CourierDetector`, `FallbackTrackingProvider` (failure/budget/unknown), `OtpService` (rate limits), `JwtService`/`JwtAuthFilter`, DTO guard (no `userId` in any request DTO), `OpenMeteoClient` (MockWebServer), `MockTrackingProvider` (determinism) `OrderServiceImportTest` (extension import: tracking number vs order id, delivered/returned, attach tracking, no duplicates) and a full **`GmailPipelineTest`** integration test (Testcontainers Mongo; auto-skipped when Docker isn't running — needs Testcontainers ≥ 1.21.4 for Docker Engine 29+) covering login → simulate → dedupe (including replayed status emails) → allowlist → audit → stormy risk → demo mode flag.
+
+Extension: `extension/test/extract.test.js` runs the real `content/retailers.js` + `content/extract.js` against order-page text (Flipkart wording checked on a live account): delivered / returned / shipped / cancelled pages, upcoming steps that must not count as done, hyphenated AWBs, unsupported stores.
 
 ## Future scope
 

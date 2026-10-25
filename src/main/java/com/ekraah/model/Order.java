@@ -22,7 +22,8 @@ public class Order {
     private String currentCity;
     private Instant lastUpdated;
     private OrderSource source = OrderSource.MANUAL;
-    private String sourceMessageId;        // for email dedupe (unique per user)
+    private String sourceMessageId;        // email that created the order (unique per user)
+    private List<String> messageIds = new ArrayList<>();   // every email applied, for replay dedupe
     private List<OrderEvent> events = new ArrayList<>();
     private RiskInfo risk;
     private Instant deliveredAt;
@@ -52,6 +53,8 @@ public class Order {
     public void setSource(OrderSource source) { this.source = source; }
     public String getSourceMessageId() { return sourceMessageId; }
     public void setSourceMessageId(String sourceMessageId) { this.sourceMessageId = sourceMessageId; }
+    public List<String> getMessageIds() { return messageIds; }
+    public void setMessageIds(List<String> messageIds) { this.messageIds = messageIds; }
     public List<OrderEvent> getEvents() { return events; }
     public void setEvents(List<OrderEvent> events) { this.events = events; }
     public RiskInfo getRisk() { return risk; }

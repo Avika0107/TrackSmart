@@ -280,9 +280,10 @@ label.lbl { display: block; font-size: 12.5px; font-weight: 700; color: var(--te
 .action.IGNORED_NOT_ALLOWED_SENDER, .action.ERROR { color: var(--high); background: var(--high-bg); }
 
 /* ---------- demo drawer ---------- */
-.demo-fab { position: fixed; left: 18px; bottom: 18px; z-index: 70; }
+/* Bottom-right: bottom-left sits on the sidebar and covered its Log out button. */
+.demo-fab { position: fixed; right: 18px; bottom: 18px; z-index: 70; }
 @media (max-width: 860px) { .demo-fab { bottom: 86px; } }
-.demo-drawer { position: fixed; left: 16px; bottom: 74px; z-index: 75; width: min(330px, calc(100vw - 32px)); padding: 18px; animation: rise .2s ease; }
+.demo-drawer { position: fixed; right: 16px; bottom: 74px; z-index: 75; width: min(330px, calc(100vw - 32px)); padding: 18px; animation: rise .2s ease; }
 @media (max-width: 860px) { .demo-drawer { bottom: 140px; } }
 .demo-drawer h3 { font-size: 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
 .demo-drawer .grid { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; margin-bottom: 12px; }
