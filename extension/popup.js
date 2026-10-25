@@ -54,8 +54,8 @@ function showSuccess(outcome, order, facts) {
         ["Store", facts.platform],
         ["Order ID", maskTracking(order.retailerOrderId)],
         ["Status", order.status],
-        ["Tracking", order.status === "DELIVERED"
-          ? "Not needed — already delivered"
+        ["Tracking", ["DELIVERED", "RETURNED", "CANCELLED"].includes(order.status)
+          ? "Not needed — order is " + order.status.toLowerCase()
           : "Not on this page — click Send again later, or add the courier's number on the dashboard"],
       ]
     : [

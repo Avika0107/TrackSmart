@@ -161,7 +161,7 @@ order details page ──click icon──▶ content/extract.js (on-device: AWB,
   | Page shows | Order status | Result |
   |---|---|---|
   | Tracking number | not delivered | Live tracking (`API`; Amazon TBA stays `EMAIL_ONLY`) |
-  | Tracking number | delivered | Order id only — nothing left to track, no API quota spent |
+  | Tracking number | delivered / returned / cancelled | Order id only — nothing left to track, no API quota spent |
   | Order id only (Flipkart never shows the Ekart AWB) | any | `PAGE_ONLY` card: status + dates from the page; click Send again to update |
 - **Flipkart + courier SMS:** a `PAGE_ONLY` card that isn't delivered has an *Add tracking number* box on the dashboard (`POST /orders/{id}/tracking`) — paste the Ekart number from the SMS and it switches to live tracking.
 - **Server side** re-validates numbers with `CourierDetector`, is idempotent (same AWB or order id → updates/returns the existing card), merges into an `EMAIL_PENDING` card of the same platform, never lets a page overwrite a live-tracked order, and writes an audit entry. The page's courier name only breaks ties between digit-only couriers.

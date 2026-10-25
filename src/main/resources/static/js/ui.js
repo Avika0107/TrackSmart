@@ -92,7 +92,7 @@ export function celebrate() {
 
 export const STATUS_LABEL = {
   ORDERED: "Ordered", SHIPPED: "Shipped", IN_TRANSIT: "In transit", OUT_FOR_DELIVERY: "Out for delivery",
-  DELIVERED: "Delivered", EXCEPTION: "Exception", CANCELLED: "Cancelled", UNKNOWN: "Pending",
+  DELIVERED: "Delivered", EXCEPTION: "Exception", CANCELLED: "Cancelled", RETURNED: "Returned", UNKNOWN: "Pending",
 };
 
 /** 0..4 progress position for the 5-step bar (exceptions stay at step 3, red). */
@@ -105,6 +105,7 @@ export function statusStep(status) {
     case "DELIVERED": return 4;
     case "EXCEPTION": return 3;
     case "CANCELLED": return 4; // progress bar full; pill + risk chip carry the state
+    case "RETURNED": return 4;
     default: return 0;
   }
 }
@@ -113,13 +114,13 @@ export function statusPill(status) {
   const colors = {
     ORDERED: "var(--text-soft)", SHIPPED: "var(--accent)", IN_TRANSIT: "var(--accent)",
     OUT_FOR_DELIVERY: "var(--accent-2)", DELIVERED: "var(--low)", EXCEPTION: "var(--high)",
-    CANCELLED: "var(--high)", UNKNOWN: "var(--text-soft)",
+    CANCELLED: "var(--high)", RETURNED: "var(--medium)", UNKNOWN: "var(--text-soft)",
   };
   const bg = {
     ORDERED: "var(--card)", SHIPPED: "color-mix(in srgb, var(--accent) 15%, transparent)",
     IN_TRANSIT: "color-mix(in srgb, var(--accent) 15%, transparent)",
     OUT_FOR_DELIVERY: "color-mix(in srgb, var(--accent-2) 16%, transparent)",
-    DELIVERED: "var(--low-bg)", EXCEPTION: "var(--high-bg)", CANCELLED: "var(--high-bg)", UNKNOWN: "var(--card)",
+    DELIVERED: "var(--low-bg)", EXCEPTION: "var(--high-bg)", CANCELLED: "var(--high-bg)", RETURNED: "var(--medium-bg)", UNKNOWN: "var(--card)",
   };
   return el("span", { class: "status-pill", style: `color:${colors[status] || "var(--text-soft)"};background:${bg[status] || "var(--card)"}` },
     STATUS_LABEL[status] || status);

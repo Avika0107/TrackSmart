@@ -20,7 +20,7 @@
 
   const MAX_CHARS = 200_000;                       // order pages are small; guards against huge pages
   const text = (document.body?.innerText || "")
-    .replace(/ /g, " ")                       // &nbsp; -> normal space so \s matches
+    .replace(/\u00a0/g, " ")                       // &nbsp; -> normal space so \s matches
     .slice(0, MAX_CHARS);
 
   // ---------- 3. Tracking number: label-anchored, then format-validated ----------

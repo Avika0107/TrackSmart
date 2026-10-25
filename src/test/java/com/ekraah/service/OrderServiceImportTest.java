@@ -333,4 +333,27 @@ class OrderServiceImportTest {
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("another card");
     }
+
+    // ---- returned orders --------------------------------------------------------
+
+    @Test
+    void returnedOrderIsImportedAsFinishedByOrderId() {
+        var returned = new ImportOrderRequest(Platform.FLIPKART, "FMPP9876543210", "Ekart", "OD437000000000000001",
+                OrderStatus.RETURNED, null, null);
+
+        var result = service.importFromExtension(USER, returned);
+
+        assertThat(result.order().getStatus()).isEqualTo(OrderStatus.RETURNED);
+        assertThat(result.order().getTrackingMode()).isEqualTo(TrackingMode.PAGE_ONLY);
+        assertThat(result.order().getRisk()).isNull();
+        verify(tracking, never()).track(anyString(), anyString());
+    }
+
+    @Test
+    void attachTrackingRefusesReturnedOrders() {
+        ownedPageOnlyCard("c5", OrderStatus.RETURNED);
+        assertThatThrownBy(() -> service.attachTracking(USER, "c5", "FMPP9876543210"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("already returned");
+    }
 }

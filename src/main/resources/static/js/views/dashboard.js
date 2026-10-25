@@ -65,7 +65,7 @@ function statCards(stats) {
 
 function attentionStrip(orders) {
   const risky = orders.filter((o) => o.risk && o.risk.level !== "LOW"
-    && o.status !== "DELIVERED" && o.status !== "CANCELLED");
+    && !isFinished(o.status));
   if (!risky.length) return null;
   return el("div", { class: "attention" },
     el("div", { class: "t" }, "⚠️ Needs attention"),
@@ -119,11 +119,12 @@ function orderGrid(orders, content) {
 }
 
 function orderCard(o, content, index) {
-  const risk = o.risk && o.status !== "DELIVERED" && o.status !== "CANCELLED"
+  const risk = o.risk && !isFinished(o.status)
     ? el("span", { class: `chip ${o.risk.level.toLowerCase()}`, title: o.risk.message || "" },
         riskIcon(o.risk.level), " ", o.risk.level === "LOW" ? "On track" : "Possible delay")
     : o.status === "DELIVERED" ? el("span", { class: "chip low" }, "🎉 Delivered")
-    : o.status === "CANCELLED" ? el("span", { class: "chip high", title: "Cancellation email received from the retailer" }, "🚫 Cancelled") : null;
+    : o.status === "CANCELLED" ? el("span", { class: "chip high", title: "Cancellation email received from the retailer" }, "🚫 Cancelled")
+    : o.status === "RETURNED" ? el("span", { class: "chip medium", title: "Returned to the seller" }, "↩️ Returned") : null;
 
   const fill = statusStep(o.status);
   const exception = o.status === "EXCEPTION" || o.status === "CANCELLED";
@@ -164,8 +165,14 @@ function orderCard(o, content, index) {
       statusPill(o.status),
       el("span", {}, o.status === "DELIVERED" ? "Delivered " + timeAgo(o.deliveredAt)
         : o.status === "CANCELLED" ? "Cancelled " + timeAgo(o.lastUpdated)
+        : o.status === "RETURNED" ? "Returned " + timeAgo(o.lastUpdated)
         : "ETA " + fmtDate(o.estimatedDelivery)),
       el("span", {}, timeAgo(o.lastUpdated))));
+}
+
+/** Delivered, cancelled or returned: no risk, no ETA, nothing left to track (OrderStatus.TERMINAL). */
+function isFinished(status) {
+  return status === "DELIVERED" || status === "CANCELLED" || status === "RETURNED";
 }
 
 function riskIcon(level) {
@@ -190,7 +197,8 @@ export async function openDetail(orderId) {
 
   const weather = detail.weather;
   const risk = o.risk;
-  panel.replaceChildren(
+  // Native replaceChildren() prints null as text (unlike el()), so drop the conditional nulls.
+  panel.replaceChildren(...[
     el("div", { style: "display:flex;justify-content:space-between;align-items:center" },
       el("h2", { style: "font-size:18px" }, platformName(o.platform)),
       el("button", { class: "btn ghost small", onclick: close, "aria-label": "Close" }, "✕")),
@@ -210,11 +218,11 @@ export async function openDetail(orderId) {
 
     o.trackingMode === "PAGE_ONLY" ? el("div", { class: "info-banner" },
       el("b", {}, "Followed via the store's order page. "),
-      o.status === "DELIVERED" || o.status === "CANCELLED"
+      isFinished(o.status)
         ? "This order is finished, so the store's order ID is all we keep — nothing left to track."
         : "This store shows only its order ID, not the courier's tracking number. Click Send in the EkRaah extension on the order page to update the status — or, if the courier sent you a tracking number (e.g. by SMS), add it below for live tracking.") : null,
 
-    o.trackingMode === "PAGE_ONLY" && o.status !== "DELIVERED" && o.status !== "CANCELLED"
+    o.trackingMode === "PAGE_ONLY" && !isFinished(o.status)
       ? attachTrackingForm(o, close) : null,
 
     o.trackingMode === "EMAIL_PENDING" ? el("div", { class: "info-banner" },
@@ -232,7 +240,7 @@ export async function openDetail(orderId) {
             + (weather.source === "mock" ? " · demo weather" : " · live forecast")
           : "Weather unavailable right now"))) : null,
 
-    risk && o.status !== "DELIVERED" && o.status !== "CANCELLED" ? el("div", { class: `gauge ${risk.level.toLowerCase()}` },
+    risk && !isFinished(o.status) ? el("div", { class: `gauge ${risk.level.toLowerCase()}` },
       el("div", {},
         el("div", { class: "score" }, `${risk.score}`),
         el("div", { style: "font-size:11px;color:var(--text-soft)" }, "risk score")),
@@ -259,7 +267,7 @@ export async function openDetail(orderId) {
         try { await api(`/orders/${o.id}`, { method: "DELETE" }); toast("Order removed", "ok"); close(); renderDashboard(); }
         catch (e) { toast(e.message, "err"); }
       } }, "🗑 Delete")),
-  );
+  ].filter((c) => c != null));
   overlay.replaceChildren(bg, panel);
 }
 

@@ -319,10 +319,10 @@ public class OrderService {
         }
         if (orderId != null) orderId = orderId.toUpperCase(Locale.ROOT);
         String source = "browser extension (" + req.platform().name().toLowerCase(Locale.ROOT) + ")";
-        // Already delivered: nothing left to track, so don't spend tracking-API quota — the order
-        // id and the page's delivered date are enough. Needs an order id as the card's key.
-        boolean delivered = req.status() == OrderStatus.DELIVERED;
-        return number == null || (delivered && orderId != null)
+        // Already finished (delivered / returned / cancelled): nothing left to track, so don't spend
+        // tracking-API quota — the order id and the page's facts are enough. Needs an order id as key.
+        boolean finished = req.status() != null && req.status().isTerminal();
+        return number == null || (finished && orderId != null)
                 ? importByOrderId(userId, req, orderId, source)
                 : importByTrackingNumber(userId, req, number.toUpperCase(Locale.ROOT), orderId, source);
     }
@@ -426,7 +426,7 @@ public class OrderService {
         if (!isPlaceholder(order)) {
             throw new ApiException(HttpStatus.CONFLICT, "This order already has a tracking number.");
         }
-        if (order.getStatus() == OrderStatus.DELIVERED || order.getStatus() == OrderStatus.CANCELLED) {
+        if (isFinished(order)) {
             throw new ApiException(HttpStatus.BAD_REQUEST,
                     "This order is already " + order.getStatus().name().toLowerCase(Locale.ROOT) + " — nothing left to track.");
         }
@@ -481,6 +481,11 @@ public class OrderService {
         return orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(userId, TrackingMode.EMAIL_PENDING)
                 .filter(o -> o.getPlatform() == platform && o.getStatus() != OrderStatus.CANCELLED
                         && o.getRetailerOrderId() == null);
+    }
+
+    /** Delivered, cancelled or returned: no tracking, no risk, not counted as on-time. */
+    private static boolean isFinished(Order o) {
+        return o.getStatus() != null && o.getStatus().isTerminal();
     }
 
     private static boolean isPlaceholder(Order o) {
@@ -595,9 +600,9 @@ public class OrderService {
             byStatus.merge(String.valueOf(o.getStatus()), 1L, Long::sum);
             byPlatform.merge(String.valueOf(o.getPlatform()), 1L, Long::sum);
             if (o.getRisk() != null && o.getRisk().getLevel() != com.ekraah.model.RiskLevel.LOW
-                    && o.getStatus() != OrderStatus.DELIVERED) {
+                    && !isFinished(o)) {
                 atRisk++;
-            } else if (o.getStatus() != OrderStatus.DELIVERED) {
+            } else if (!isFinished(o)) {
                 onTime++;
             }
         }
@@ -615,8 +620,8 @@ public class OrderService {
 
     /** Rules only: city + status + weather -> risk. Called on refresh and when a read finds stale risk. */
     public void computeRisk(Order order) {
-        if (order.getStatus() == OrderStatus.DELIVERED) {
-            order.setRisk(null); // UI hides risk for delivered orders
+        if (isFinished(order)) {
+            order.setRisk(null); // UI hides risk for delivered / cancelled / returned orders
             return;
         }
         if (order.getCurrentCity() == null || order.getCurrentCity().isBlank()) {
@@ -641,7 +646,7 @@ public class OrderService {
     private void refreshStaleRisk(List<Order> ordersList) {
         boolean dirty = false;
         for (Order o : ordersList) {
-            if (o.getStatus() == OrderStatus.DELIVERED || o.getCurrentCity() == null) continue;
+            if (isFinished(o) || o.getCurrentCity() == null) continue;
             boolean stale = o.getRisk() == null || o.getRisk().getComputedAt() == null
                     || Duration.between(o.getRisk().getComputedAt(), Instant.now()).compareTo(RISK_STALE_AFTER) > 0;
             if (stale) {

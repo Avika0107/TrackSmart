@@ -26,7 +26,9 @@ globalThis.EKRAAH_RETAILERS = (() => {
       {
         platform: "FLIPKART",
         hosts: ["flipkart.com"],
-        orderPages: [/\/account\/order_details/, /\/account\/orders/],
+        // Real address: /order_details?order_id=OD…&item_id=… (checked on a live account).
+        // Not /account/orders: that list holds many orders and would yield the first one's id.
+        orderPages: [/\/order_details/],
         orderId: /\b(OD\d{15,20})\b/,
       },
       {
@@ -87,6 +89,9 @@ globalThis.EKRAAH_RETAILERS = (() => {
     // Group 1, when present, is the step's date.
     pageStatus: [
       { status: "CANCELLED", match: /\bcancel+ed\s*(?:on\b|,)|order\s+(?:was|has\s+been|is)\s+cancel+ed/i },
+      // "Return, Jun 02" / "Refund, Jun 05" (checked on a live Flipkart return). Needs a date right
+      // after the word, so "Return policy ended on Oct 13" on a delivered order doesn't match.
+      { status: "RETURNED", match: afterLabel(String.raw`\b(?:return(?:ed)?|refund(?:ed)?)`) },
       { status: "DELIVERED", match: afterLabel(String.raw`\bdelivered`) },
       { status: "OUT_FOR_DELIVERY", match: /\bout\s+for\s+delivery\s*(?:today|[,:-]\s*(?:today|\w))/i },
       { status: "SHIPPED", match: afterLabel(String.raw`\bshipped`) },
