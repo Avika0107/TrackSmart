@@ -13,8 +13,12 @@ services:
     depends_on:
       - mongo
     environment:
-      SPRING_PROFILES_ACTIVE: demo
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-demo}
       MONGODB_URI: mongodb://mongo:27017/parcelpilot
+      APP_OTP_SENDER: ${APP_OTP_SENDER:-demo}
+      FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:-}
+      FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:-}
+      FAST2SMS_TEMPLATE_ID: ${FAST2SMS_TEMPLATE_ID:-}
       MAIL_USER: ${MAIL_USER:-}
       MAIL_APP_PASSWORD: ${MAIL_APP_PASSWORD:-}
       SHIP24_API_KEY: ${SHIP24_API_KEY:-}

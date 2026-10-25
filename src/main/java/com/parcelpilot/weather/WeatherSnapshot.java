@@ -11,5 +11,7 @@ public record WeatherSnapshot(
         double windKmph,
         int wmoCode,
         double visibilityKm,
+        double windGustsKmph,
+        double precipitationProbabilityPct,
         String source) {
 }

@@ -14,7 +14,7 @@
   <groupId>com.parcelpilot</groupId>
   <artifactId>parcelpilot</artifactId>
   <version>0.1.0</version>
-  <name>ParcelPilot</name>
+  <name>EkRaah</name>
   <description>Unified order tracker with weather-based delay alerts</description>
 
   <properties>
@@ -22,6 +22,8 @@
     <jjwt.version>0.12.6</jjwt.version>
     <jsoup.version>1.18.3</jsoup.version>
     <springdoc.version>2.8.9</springdoc.version>
+    <springdotenv.version>5.1.0</springdotenv.version>
+    <dotenv.version>3.2.0</dotenv.version>
   </properties>
 
   <dependencies>
@@ -79,6 +81,20 @@
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
       <version>${springdoc.version}</version>
+    </dependency>
+
+    <!-- Loads .env into the Environment in dev (real env vars always win in prod) -->
+    <dependency>
+      <groupId>me.paulschwarz</groupId>
+      <artifactId>springboot3-dotenv</artifactId>
+      <version>${springdotenv.version}</version>
+    </dependency>
+    <!-- Used directly in main() to bootstrap SPRING_PROFILES_ACTIVE from .env:
+         profile selection happens before property sources can contribute it. -->
+    <dependency>
+      <groupId>io.github.cdimascio</groupId>
+      <artifactId>dotenv-java</artifactId>
+      <version>${dotenv.version}</version>
     </dependency>
 
     <!-- Test -->

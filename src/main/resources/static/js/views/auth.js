@@ -10,14 +10,42 @@ function loginScreen() {
   let step = "login"; // login | signup-phone | signup-otp | forgot-phone | forgot-otp
   let phone = "";
   let resendTimer = null;
+  let authMode = null; // cached response from /auth/mode: { demoMode, otpMode }
+
+  async function getAuthMode() {
+    if (!authMode) {
+      authMode = await api("/auth/mode").catch(() => ({ demoMode: true, otpMode: "demo" }));
+    }
+    return authMode;
+  }
+
+    // Password input wrapped with a show/hide toggle button.
+  function passwordField(pass) {
+    const toggle = el("button", {
+      type: "button", class: "chip", "aria-label": "Show password", "aria-pressed": "false",
+      style: "padding:11px 12px;cursor:pointer;user-select:none;flex:none",
+    }, "👁");
+    toggle.addEventListener("click", () => {
+      const show = pass.type === "password";
+      pass.type = show ? "text" : "password";
+      toggle.textContent = show ? "🙈" : "👁";
+      toggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      toggle.setAttribute("aria-pressed", String(show));
+      pass.focus();
+    });
+    return el("div", { class: "copy-row", style: "margin:8px 0 0" }, pass, toggle);
+  }
 
   const card = el("div", { class: "auth-card card", role: "main" });
+  const ribbon = el("span", { class: "demo-ribbon ribbon", hidden: true },
+    "✨ Demo mode — log in with 9999999999 / demo1234");
+  getAuthMode().then((m) => { ribbon.hidden = !m.demoMode; });
 
   function render() {
     clearTimeout(resendTimer);
     card.replaceChildren(
       el("div", { class: "brand", style: "padding:0 0 16px" },
-        el("span", { class: "logo", "aria-hidden": "true" }, "📦"), "ParcelPilot"),
+        el("span", { class: "logo", "aria-hidden": "true" }, "📦"), "EkRaah"),
       ...(step === "login" ? loginStep()
         : step === "signup-phone" ? phoneStep("signup")
         : step === "signup-otp" ? otpStep("signup")
@@ -71,7 +99,7 @@ function loginScreen() {
       el("div", { class: "copy-row" },
         el("span", { class: "chip", style: "padding:11px 14px" }, "+91"), input),
       el("label", { class: "lbl", style: "margin-top:12px" }, "Password"),
-      pass,
+      passwordField(pass),
       btn,
       el("p", { style: "text-align:center;font-size:13px;margin-top:14px" },
         el("button", { type: "button", onclick: () => { step = "signup-phone"; render(); } }, "Create account"),
@@ -98,7 +126,8 @@ function loginScreen() {
         await api("/auth/request-otp", { method: "POST", body: { phone } });
         step = purpose + "-otp";
         render();
-        toast("OTP sent — demo code is 123456", "ok");
+        const m = await getAuthMode();
+        toast(m.demoMode ? "OTP sent — demo code is 123456" : "OTP sent by SMS — check your phone", "ok");
       } catch (e) { toast(e.message, "err"); btn.disabled = false; }
     });
     input.addEventListener("keydown", (e) => e.key === "Enter" && btn.click());
@@ -150,15 +179,19 @@ function loginScreen() {
     pass.addEventListener("keydown", (e) => e.key === "Enter" && btn.click());
 
     const resend = resendControls();
+    const hint = el("p", { style: "text-align:center;font-size:12.5px;color:var(--accent-2);font-weight:700" },
+      authMode && !authMode.demoMode ? "🔑 We texted a real code to your phone" : "Demo mode OTP: 123456");
+    getAuthMode().then((m) => {
+      hint.textContent = m.demoMode ? "Demo mode OTP: 123456" : "🔑 We texted a real code to your phone";
+    });
     return [
       el("h1", {}, purpose === "signup" ? "Verify & choose a password" : "Choose a new password"),
       el("p", { class: "lede" }, `We sent a 6-digit code to +91 ${phone}.`),
       el("div", { class: "otp-row" }, inputs),
       el("label", { class: "lbl", style: "margin-top:14px" },
         purpose === "signup" ? "Create password" : "New password"),
-      pass,
-      el("p", { style: "text-align:center;font-size:12.5px;color:var(--accent-2);font-weight:700" },
-        "Demo mode OTP: 123456"),
+      passwordField(pass),
+      hint,
       btn,
       el("p", { class: "resend" }, "Didn't get it? ", resend.resendBtn, resend.timerLabel),
       backLink(),
@@ -190,7 +223,8 @@ function loginScreen() {
     resendBtn.addEventListener("click", async () => {
       try {
         await api("/auth/request-otp", { method: "POST", body: { phone } });
-        toast("OTP resent — demo code is 123456", "ok");
+        const m = await getAuthMode();
+        toast(m.demoMode ? "OTP resent — demo code is 123456" : "OTP resent by SMS — check your phone", "ok");
         seconds = 30; tick();
       } catch (e) { toast(e.message, "err"); }
     });
@@ -214,7 +248,7 @@ function loginScreen() {
   render();
   return el("div", { class: "auth-wrap" },
     el("div", { class: "hero-blob", "aria-hidden": "true" }),
-    el("span", { class: "demo-ribbon ribbon" }, "✨ Demo mode — log in with 9999999999 / demo1234"),
+    ribbon,
     card);
 }
 

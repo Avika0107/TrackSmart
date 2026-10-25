@@ -60,14 +60,30 @@ public class EmailParser {
         String domain = domainOf(senderEmail);
         String text = ((subject == null ? "" : subject + " \n ") + (bodyText == null ? "" : bodyText));
 
-        String awb = extractAwb(text, domain).orElse(null);
-        if (awb == null) return Optional.empty();   // no tracking facts -> caller ignores this email
+        boolean cancelled = looksLikeCancellation(text);
 
-        OrderStatus status = statusFrom(text);
+        String awb = extractAwb(text, domain).orElse(null);
+        if (awb == null) {
+            // Order-confirmation emails ("order placed", no tracking yet): surface the order
+            // immediately as EMAIL_PENDING; the tracking number is merged in when the
+            // retailer's shipped email arrives later.
+            if (looksLikeOrderConfirmation(text)) {
+                return Optional.of(new ParsedEmail(platform, null, null,
+                        OrderStatus.ORDERED, false, false, extractEta(text).orElse(null)));
+            }
+            // Cancellation emails may carry only the order id (no AWB) — still surface them.
+            if (cancelled) {
+                return Optional.of(new ParsedEmail(platform, null, null,
+                        OrderStatus.CANCELLED, false, true, null));
+            }
+            return Optional.empty();   // no tracking facts -> caller ignores this email
+        }
+
+        OrderStatus status = cancelled ? OrderStatus.CANCELLED : statusFrom(text);
         boolean delayed = text.toLowerCase().contains("delay");
         LocalDate eta = extractEta(text).orElse(null);
         String courier = CourierDetector.detect(awb, domain).orElse(null);
-        return Optional.of(new ParsedEmail(platform, courier, awb, status, delayed, eta));
+        return Optional.of(new ParsedEmail(platform, courier, awb, status, delayed, cancelled, eta));
     }
 
     /** Order of checks: distinctive formats first, then digit-length heuristics with domain hint. */
@@ -84,6 +100,40 @@ public class EmailParser {
             if (courier.isPresent()) return Optional.of(candidate);
         }
         return Optional.empty();
+    }
+
+    /**
+     * True for "your order is placed/confirmed" emails that carry no tracking number yet.
+     * Requires a placement phrase AND explicitly no shipment phrase, so shipping mails
+     * without an AWB (e.g. digital orders) are not misclassified.
+     */
+    static boolean looksLikeOrderConfirmation(String text) {
+        String v = text.toLowerCase(Locale.ENGLISH);
+        boolean placement = v.contains("order placed") || v.contains("order confirmed")
+                || v.contains("thanks for your order") || v.contains("thank you for your order")
+                || v.contains("your order is") || v.contains("we've received your order")
+                || v.contains("we have received your order");
+        boolean shipment = v.contains("shipped") || v.contains("dispatched") || v.contains("in transit")
+                || v.contains("on the way") || v.contains("out for delivery")
+                || v.contains("tracking number") || v.contains("track your") || v.contains("track it")
+                || v.contains("track this") || v.contains("awb");
+        return placement && !shipment;
+    }
+
+    /**
+     * True for "your order has been cancelled" emails. "Cancel" phrasing is matched
+     * on the past-tense confirmation ("has been cancelled", "was cancelled", "we cancelled"),
+     * not on "cancel your order" (which appears in help/promo text of live emails).
+     */
+    static boolean looksLikeCancellation(String text) {
+        String v = text.toLowerCase(Locale.ENGLISH);
+        return v.contains("has been cancelled") || v.contains("has been canceled")
+                || v.contains("was cancelled") || v.contains("was canceled")
+                || v.contains("we've cancelled") || v.contains("we've canceled")
+                || v.contains("we have cancelled") || v.contains("we have canceled")
+                || v.contains("we cancelled your") || v.contains("we canceled your")
+                || v.contains("your order has been cancelled")
+                || v.contains("cancellation is confirmed") || v.contains("cancellation confirmed");
     }
 
     static OrderStatus statusFrom(String text) {

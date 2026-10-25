@@ -21,11 +21,26 @@ import java.time.Duration;
 /**
  * Open-Meteo: free, no API key, non-commercial use only (see README).
  * Geocoding results are cached permanently; forecasts are cached 1h upstream in WeatherService.
+ *
+ * Request shape (user-specified variable set):
+ *  - daily: temperature min/max, precipitation_sum (24h rain rule), wind + gusts max
+ *  - hourly: temperature, precipitation/rain/snowfall/showers/snow_depth, rain probability,
+ *    apparent temperature, weather_code, pressure, visibility
+ * The WMO code is read from hourly granularity so short thunderstorm bursts
+ * (codes 95/96/99) are not averaged away by the daily aggregate.
  */
 @Component("weatherOpenMeteo")
 public class OpenMeteoClient implements WeatherClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenMeteoClient.class);
+
+    private static final String DAILY_VARS = String.join(",",
+            "temperature_2m_min", "temperature_2m_max", "precipitation_sum",
+            "wind_speed_10m_max", "wind_gusts_10m_max");
+    private static final String HOURLY_VARS = String.join(",",
+            "temperature_2m", "snowfall", "showers", "snow_depth", "rain", "precipitation",
+            "precipitation_probability", "apparent_temperature", "dew_point_2m", "weather_code",
+            "pressure_msl", "surface_pressure", "visibility");
 
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -45,16 +60,20 @@ public class OpenMeteoClient implements WeatherClient {
         if (ll == null) throw new IllegalStateException("Could not geocode city: " + city);
         try {
             String url = forecastUrl + "?latitude=" + ll[0] + "&longitude=" + ll[1]
-                    + "&daily=temperature_2m_max,precipitation_sum,wind_speed_10m_max,weathercode"
-                    + "&hourly=visibility&forecast_days=2&timezone=auto";
+                    + "&daily=" + DAILY_VARS
+                    + "&hourly=" + HOURLY_VARS
+                    + "&forecast_days=2&timezone=auto";
             JsonNode d = fetchJson(url);
             JsonNode daily = d.path("daily");
+            JsonNode hourly = d.path("hourly");
             double temp = max(daily.path("temperature_2m_max"));
             double precip = max(daily.path("precipitation_sum"));
             double wind = max(daily.path("wind_speed_10m_max"));
-            int wmo = worstWeatherCode(daily.path("weathercode"));
-            double visibility = minVisibility(d.path("hourly").path("visibility"));
-            return new WeatherSnapshot(city, temp, precip, wind, wmo, visibility, "open-meteo");
+            double gusts = max(daily.path("wind_gusts_10m_max"));
+            int wmo = worstWeatherCode(hourly.path("weather_code"));
+            double visibility = minVisibility(hourly.path("visibility"));
+            double rainChance = max(hourly.path("precipitation_probability"));
+            return new WeatherSnapshot(city, temp, precip, wind, wmo, visibility, gusts, rainChance, "open-meteo");
         } catch (Exception e) {
             log.warn("Open-Meteo forecast failed for {}: {}", city, e.getMessage());
             throw new IllegalStateException("Weather unavailable", e);
@@ -78,7 +97,7 @@ public class OpenMeteoClient implements WeatherClient {
     private JsonNode fetchJson(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(15))
-                .header("User-Agent", "ParcelPilot/0.1 (college project)")
+                .header("User-Agent", "EkRaah/0.1 (college project)")
                 .GET()
                 .build();
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());

@@ -31,7 +31,7 @@ export function renderSetup() {
       bars,
       el("h2", { style: "font-size:19px;margin-bottom:4px" }, `Step ${step + 1} of 4 — ${steps[step].title}`),
       el("div", { style: "color:var(--text-soft);font-size:13.5px;margin-bottom:16px" },
-        "Forwarding retailer emails is how ParcelPilot sees your orders — retailers don't share order data with third parties."),
+        "Forwarding retailer emails is how EkRaah sees your orders — retailers don't share order data with third parties."),
       steps[step].body(),
       step < 3 ? el("div", { style: "display:flex;justify-content:space-between;margin-top:22px" },
         el("button", { class: "btn ghost small", onclick: () => { step = Math.max(0, step - 1); draw(); } }, "← Back"),
@@ -61,7 +61,7 @@ export function renderSetup() {
     });
     return el("div", {},
       el("p", { style: "font-size:14px;margin-bottom:10px" },
-        "This is your personal ParcelPilot address. Emails forwarded here become live order cards."),
+        "This is your personal EkRaah address. Emails forwarded here become live order cards."),
       el("div", { class: "copy-row" }, input, btn),
       el("p", { style: "font-size:12.5px;color:var(--text-soft)" },
         `Your alias: ${info.alias} — keep it private, anyone who knows it can add orders to your dashboard.`));
@@ -71,7 +71,7 @@ export function renderSetup() {
     const dl = el("button", { class: "btn small" }, "⬇️ Download Gmail filter file");
     dl.addEventListener("click", async () => {
       try {
-        await downloadFile("/setup/gmail-filter.xml", "parcelpilot-gmail-filter.xml");
+        await downloadFile("/setup/gmail-filter.xml", "ekraah-gmail-filter.xml");
         toast("Filter file downloaded", "ok");
       } catch (e) { toast(e.message, "err"); }
     });
@@ -79,7 +79,7 @@ export function renderSetup() {
       dl,
       el("ol", { class: "howto" },
         el("li", {}, "Open ", el("b", {}, "Gmail → Settings (gear) → See all settings → Forwarding and POP/IMAP")),
-        el("li", {}, "Click ", el("b", {}, "Add a forwarding address"), " and enter your ParcelPilot address"),
+        el("li", {}, "Click ", el("b", {}, "Add a forwarding address"), " and enter your EkRaah address"),
         el("li", {}, "Gmail sends a verification email — that's step 3"),
         el("li", {}, "Then import the downloaded filter: ", el("b", {}, "Settings → Filters → Import filters"),
           " — it auto-forwards only retailer shipping emails")));

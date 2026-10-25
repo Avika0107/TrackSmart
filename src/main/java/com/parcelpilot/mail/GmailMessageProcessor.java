@@ -67,7 +67,7 @@ public class GmailMessageProcessor {
             User user = alias.flatMap(a -> users.findByInboundAlias(a)).orElse(null);
             if (user == null) {
                 audit.record(null, domain, AuditAction.IGNORED_NOT_ALLOWED_SENDER,
-                        "No ParcelPilot user for this inbox alias");
+                        "No EkRaah user for this inbox alias");
                 return "UNKNOWN_ALIAS";
             }
 
@@ -98,7 +98,12 @@ public class GmailMessageProcessor {
     }
 
     private boolean allowed(String domain) {
-        return props.getAllowedSenders().stream().anyMatch(d -> domain.equals(d.toLowerCase(Locale.ROOT)));
+        // Retailers and couriers legitimately mail from subdomains (e.g. mail.nykaa.com),
+        // so an entry like "nykaa.com" covers the domain and all of its subdomains.
+        return props.getAllowedSenders().stream().anyMatch(d -> {
+            String base = d.toLowerCase(Locale.ROOT);
+            return domain.equals(base) || domain.endsWith("." + base);
+        });
     }
 
     private static boolean looksLikeHtml(String body) {

@@ -59,7 +59,7 @@ public class SmsOtpSender implements OtpSender {
             if (senderId.isBlank() || templateId.isBlank()) {
                 log.warn("No DLT sender/template configured — using Quick SMS route (₹5 per SMS unit)");
                 body.put("route", "q");
-                body.put("message", "Your ParcelPilot verification code is " + otp);
+                body.put("message", "Your EkRaah verification code is " + otp);
             } else {
                 body.put("route", "dlt");
                 body.put("sender_id", senderId);

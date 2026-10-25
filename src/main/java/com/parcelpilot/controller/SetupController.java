@@ -47,7 +47,7 @@ public class SetupController {
     public ResponseEntity<String> gmailFilter(@AuthenticationPrincipal String userId) {
         User user = users.get(userId);
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=parcelpilot-gmail-filter.xml")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=ekraah-gmail-filter.xml")
                 .body(setup.gmailFilterXml(user));
     }
 }

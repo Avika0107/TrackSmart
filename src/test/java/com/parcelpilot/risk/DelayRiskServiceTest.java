@@ -23,7 +23,7 @@ class DelayRiskServiceTest {
     }
 
     private WeatherSnapshot weather(double precip, double wind, int wmo, double visKm, double temp) {
-        return new WeatherSnapshot("Mumbai", temp, precip, wind, wmo, visKm, "mock");
+        return new WeatherSnapshot("Mumbai", temp, precip, wind, wmo, visKm, wind, 0.0, "mock");
     }
 
     @Test

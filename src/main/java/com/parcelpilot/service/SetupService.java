@@ -35,7 +35,7 @@ public class SetupService {
         if (props.getMail().getUser() != null && !props.getMail().getUser().isBlank()) {
             return props.getMail().getUser();
         }
-        return "parcel.pilot.demo.inbox@gmail.com";
+        return "ekraah.demo.inbox@gmail.com";
     }
 
     public String forwardingAddressFor(User user) {
@@ -59,11 +59,11 @@ public class SetupService {
         return """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:apps="http://schemas.google.com/apps/2006">
-                  <title>ParcelPilot filter</title>
+                  <title>EkRaah filter</title>
                   <entry>
                     <category term="filter"/>
-                    <title>ParcelPilot - forward retailer shipping mails</title>
-                    <content>Auto-forwards order and shipping emails to ParcelPilot.</content>
+                    <title>EkRaah - forward retailer shipping mails</title>
+                    <content>Auto-forwards order and shipping emails to EkRaah.</content>
                     <apps:property name="from" value="%s"/>
                     <apps:property name="forwardTo" value="%s"/>
                     <apps:property name="sizeOperator" value="s_sl"/>

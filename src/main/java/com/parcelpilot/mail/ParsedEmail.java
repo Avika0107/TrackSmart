@@ -12,6 +12,7 @@ public record ParsedEmail(
         String trackingNumber,
         OrderStatus status,
         boolean delayed,
+        boolean cancelled,
         LocalDate estimatedDelivery) {
 
     public boolean hasTracking() { return trackingNumber != null && !trackingNumber.isBlank(); }

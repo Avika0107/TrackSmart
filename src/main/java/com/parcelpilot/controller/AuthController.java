@@ -3,6 +3,7 @@ package com.parcelpilot.controller;
 import com.parcelpilot.dto.AuthDtos.AuthResponse;
 import com.parcelpilot.dto.AuthDtos.LoginRequest;
 import com.parcelpilot.dto.AuthDtos.RegisterRequest;
+import com.parcelpilot.config.AppProperties;
 import com.parcelpilot.dto.AuthDtos.RequestOtpRequest;
 import com.parcelpilot.dto.AuthDtos.ResetPasswordRequest;
 import com.parcelpilot.dto.AuthDtos.UserView;
@@ -10,6 +11,7 @@ import com.parcelpilot.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,9 +24,22 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService auth;
+    private final AppProperties props;
 
-    public AuthController(AuthService auth) {
+    public AuthController(AuthService auth, AppProperties props) {
         this.auth = auth;
+        this.props = props;
+    }
+
+    @GetMapping("/mode")
+    @Operation(summary = "Which OTP delivery mode is active (demo shows the fixed code, sms does not)")
+    public Map<String, Object> mode() {
+        boolean fixed = props.getOtp().getFixed() != null && !props.getOtp().getFixed().isBlank();
+        boolean real = "sms".equals(props.getOtp().getSender())
+                && props.getOtp().getFast2smsKey() != null && !props.getOtp().getFast2smsKey().isBlank();
+        return Map.of(
+                "demoMode", !fixed && !real,   // demo profile pins app.otp.fixed, prod leaves it blank
+                "otpMode", real ? "sms" : props.getOtp().getSender());
     }
 
     @PostMapping("/request-otp")

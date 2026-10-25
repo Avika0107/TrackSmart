@@ -14,5 +14,5 @@ public final class OrderDtos {
 
     public record OrderDetailResponse(com.parcelpilot.model.Order order, WeatherSnapshot weather) {}
 
-    public record SettingsRequest(String theme, Boolean notificationsOn) {}
+    public record SettingsRequest(String theme, Boolean notificationsOn, String defaultCity) {}
 }

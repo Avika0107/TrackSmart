@@ -40,6 +40,7 @@ function detectDeliveries(orders) {
   for (const o of orders) {
     const before = previousStatuses[o.id];
     if (before && before !== "DELIVERED" && o.status === "DELIVERED") celebrate();
+    if (before && before !== "CANCELLED" && o.status === "CANCELLED") toast("An order was cancelled — see the 🚫 card", "info");
     previousStatuses[o.id] = o.status;
   }
 }
@@ -63,7 +64,8 @@ function statCards(stats) {
 }
 
 function attentionStrip(orders) {
-  const risky = orders.filter((o) => o.risk && o.risk.level !== "LOW" && o.status !== "DELIVERED");
+  const risky = orders.filter((o) => o.risk && o.risk.level !== "LOW"
+    && o.status !== "DELIVERED" && o.status !== "CANCELLED");
   if (!risky.length) return null;
   return el("div", { class: "attention" },
     el("div", { class: "t" }, "⚠️ Needs attention"),
@@ -117,13 +119,14 @@ function orderGrid(orders, content) {
 }
 
 function orderCard(o, content, index) {
-  const risk = o.risk && o.status !== "DELIVERED"
+  const risk = o.risk && o.status !== "DELIVERED" && o.status !== "CANCELLED"
     ? el("span", { class: `chip ${o.risk.level.toLowerCase()}`, title: o.risk.message || "" },
         riskIcon(o.risk.level), " ", o.risk.level === "LOW" ? "On track" : "Possible delay")
-    : o.status === "DELIVERED" ? el("span", { class: "chip low" }, "🎉 Delivered") : null;
+    : o.status === "DELIVERED" ? el("span", { class: "chip low" }, "🎉 Delivered")
+    : o.status === "CANCELLED" ? el("span", { class: "chip high", title: "Cancellation email received from the retailer" }, "🚫 Cancelled") : null;
 
   const fill = statusStep(o.status);
-  const exception = o.status === "EXCEPTION";
+  const exception = o.status === "EXCEPTION" || o.status === "CANCELLED";
   const segs = Array.from({ length: 5 }, (_, i) =>
     el("div", { class: `seg${i <= fill ? (exception ? " exception" : " fill") : ""}` }));
 
@@ -152,12 +155,15 @@ function orderCard(o, content, index) {
       el("span", { class: "chip platform", style: `color:${PLATFORM_COLORS[o.platform] || ""}` }, o.platform),
       o.courier ? el("span", { class: "chip courier" }, o.courier) : null,
       o.trackingMode === "EMAIL_ONLY" ? el("span", { class: "chip", title: "Live scanning unavailable — followed via emails" }, "✉️ email-only") : null,
+      o.trackingMode === "EMAIL_PENDING" ? el("span", { class: "chip", title: "Order placed — tracking number will appear when the shipping email arrives" }, "⏳ placed · tracking soon") : null,
       risk),
-    el("div", { class: "oc-track" }, maskTracking(o.trackingNumber)),
+    el("div", { class: "oc-track" }, o.trackingMode === "EMAIL_PENDING" ? "Tracking number on its way…" : maskTracking(o.trackingNumber)),
     el("div", { class: "progress", "aria-label": "Delivery progress" }, segs),
     el("div", { class: "oc-bottom" },
       statusPill(o.status),
-      el("span", {}, o.status === "DELIVERED" ? "Delivered " + timeAgo(o.deliveredAt) : "ETA " + fmtDate(o.estimatedDelivery)),
+      el("span", {}, o.status === "DELIVERED" ? "Delivered " + timeAgo(o.deliveredAt)
+        : o.status === "CANCELLED" ? "Cancelled " + timeAgo(o.lastUpdated)
+        : "ETA " + fmtDate(o.estimatedDelivery)),
       el("span", {}, timeAgo(o.lastUpdated))));
 }
 
@@ -192,23 +198,31 @@ export async function openDetail(orderId) {
       o.courier ? el("span", { class: "chip courier" }, o.courier) : null,
       statusPill(o.status)),
     el("div", { class: "oc-track", style: "margin:10px 0" },
-      maskTracking(o.trackingNumber), " ",
-      el("button", { class: "chip", style: "cursor:pointer", onclick: () => {
+      o.trackingMode === "EMAIL_PENDING" ? "Tracking number on its way…" : maskTracking(o.trackingNumber),
+      o.trackingMode !== "EMAIL_PENDING" ? " " : null,
+      o.trackingMode !== "EMAIL_PENDING" ? el("button", { class: "chip", style: "cursor:pointer", onclick: () => {
         navigator.clipboard.writeText(o.trackingNumber).then(() => toast("Tracking number copied", "ok"));
-      } }, "📋 copy")),
+      } }, "📋 copy") : null),
     o.trackingMode === "EMAIL_ONLY" ? el("div", { class: "info-banner" },
       el("b", {}, "Tracked via email only. "),
       "Amazon's internal tracking numbers can't be read by third-party APIs, so this order follows the shipping emails forwarded from Amazon.") : null,
+
+    o.trackingMode === "EMAIL_PENDING" ? el("div", { class: "info-banner" },
+      el("b", {}, "Order placed — tracking number coming. "),
+      "We got your order confirmation from the forwarded email. The tracking number will be picked up automatically from the retailer's shipped email — usually within a few hours, and the card updates itself.") : null,
 
     o.currentCity ? el("div", { class: "weather-card" },
       el("span", { class: "ico", "aria-hidden": "true" }, weatherIcon(weather)),
       el("div", {},
         el("div", { style: "font-weight:800" }, `Now near ${o.currentCity}`),
         el("div", { style: "color:var(--text-soft);font-size:12.5px" }, weather
-          ? `${Math.round(weather.tempC)}°C · ${weather.precipitationMm24h.toFixed(1)} mm rain/24h · ${Math.round(weather.windKmph)} km/h wind${weather.source === "mock" ? " · demo weather" : ""}`
+          ? `${Math.round(weather.tempC)}°C · ${weather.precipitationMm24h.toFixed(1)} mm rain/24h · ${Math.round(weather.windKmph)} km/h wind`
+            + (weather.windGustsKmph > weather.windKmph ? ` (gusts ${Math.round(weather.windGustsKmph)})` : "")
+            + (weather.precipitationProbabilityPct > 0 ? ` · ${Math.round(weather.precipitationProbabilityPct)}% rain chance` : "")
+            + (weather.source === "mock" ? " · demo weather" : " · live forecast")
           : "Weather unavailable right now"))) : null,
 
-    risk && o.status !== "DELIVERED" ? el("div", { class: `gauge ${risk.level.toLowerCase()}` },
+    risk && o.status !== "DELIVERED" && o.status !== "CANCELLED" ? el("div", { class: `gauge ${risk.level.toLowerCase()}` },
       el("div", {},
         el("div", { class: "score" }, `${risk.score}`),
         el("div", { style: "font-size:11px;color:var(--text-soft)" }, "risk score")),

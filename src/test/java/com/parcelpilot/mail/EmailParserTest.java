@@ -91,6 +91,54 @@ class EmailParserTest {
     }
 
     @Test
+    void parsesOrderConfirmationWithoutTrackingAsPending() {
+        ParsedEmail p = parse("no-reply@amazon.in", "Your order is confirmed",
+                "Thanks for your order! We've received your order and will email tracking details when it ships. Arriving by 12 Oct 2026.");
+        assertThat(p).isNotNull();
+        assertThat(p.trackingNumber()).isNull();
+        assertThat(p.hasTracking()).isFalse();
+        assertThat(p.status()).isEqualTo(OrderStatus.ORDERED);
+        assertThat(p.platform()).isEqualTo(Platform.AMAZON);
+        assertThat(p.estimatedDelivery()).isNotNull();
+    }
+
+    @Test
+    void shippingMailWithoutAwbIsNotMisclassifiedAsConfirmation() {
+        ParsedEmail p = parse("shipment-tracking@flipkart.com", "Track your shipment",
+                "Thanks for shopping with us. Your package is on the way and you can track it on the Ekart website.");
+        assertThat(p).isNull(); // shipment wording without AWB: not a confirmation, not ignorable noise
+    }
+
+    @Test
+    void parsesCancellationWithTrackingNumber() {
+        ParsedEmail p = parse("shipment-tracking@flipkart.com", "Your order has been cancelled",
+                "Your shipment FMP4471203 has been cancelled as requested. Refund will be credited in 5-7 days.");
+        assertThat(p).isNotNull();
+        assertThat(p.cancelled()).isTrue();
+        assertThat(p.status()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(p.trackingNumber()).isEqualTo("FMP4471203");
+    }
+
+    @Test
+    void parsesCancellationWithoutTrackingNumber() {
+        ParsedEmail p = parse("no-reply@amazon.in", "Your order has been cancelled",
+                "Your order has been cancelled as per your request. You have not been charged. We're sorry for the inconvenience.");
+        assertThat(p).isNotNull();
+        assertThat(p.cancelled()).isTrue();
+        assertThat(p.status()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(p.trackingNumber()).isNull();
+    }
+
+    @Test
+    void cancelYourOrderHelpTextIsNotACancellation() {
+        ParsedEmail p = parse("shipment-tracking@flipkart.com", "Your order is on the way",
+                "Your package FMP9988112 is in transit. You can cancel your order from the app until it ships.");
+        assertThat(p).isNotNull();
+        assertThat(p.cancelled()).isFalse();
+        assertThat(p.status()).isNotEqualTo(OrderStatus.CANCELLED);
+    }
+
+    @Test
     void ignoresPromoMailWithoutTracking() {
         ParsedEmail p = parse("no-reply@flipkart.com", "Big Billion Days: up to 90% off",
                 "The biggest sale of the year is here! Shop now!");
@@ -119,7 +167,7 @@ class EmailParserTest {
         // The record carries only tracking facts — no field can hold the body.
         assertThat(ParsedEmail.class.getRecordComponents())
                 .extracting(java.lang.reflect.RecordComponent::getName)
-                .containsExactly("platform", "courier", "trackingNumber", "status", "delayed", "estimatedDelivery");
+                .containsExactly("platform", "courier", "trackingNumber", "status", "delayed", "cancelled", "estimatedDelivery");
     }
 
     @Test

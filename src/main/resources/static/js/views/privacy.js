@@ -30,7 +30,7 @@ async function load(content) {
 
   content.replaceChildren(
     el("div", { class: "card", style: "padding:22px;margin-bottom:18px" },
-      el("h2", { style: "font-size:17px;margin-bottom:8px" }, "How ParcelPilot handles your data"),
+      el("h2", { style: "font-size:17px;margin-bottom:8px" }, "How EkRaah handles your data"),
       el("p", { style: "font-size:13.5px;color:var(--text-soft);line-height:1.7" },
         "We store only tracking facts: courier, tracking number, status, city and dates — never raw email text, item names, prices or addresses. ",
         "Everything below is the same audit trail your mail pipeline writes, in plain language. Delete your account and every row disappears.")),

@@ -15,7 +15,7 @@ public class OpenApiConfig {
         String scheme = "bearerAuth";
         return new OpenAPI()
                 .info(new Info()
-                        .title("ParcelPilot API")
+                        .title("EkRaah API")
                         .description("Unified order tracker with weather-based delay alerts.")
                         .version("0.1.0"))
                 .addSecurityItem(new SecurityRequirement().addList(scheme))

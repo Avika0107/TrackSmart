@@ -77,8 +77,32 @@ public class OrderService {
             return new EmailResult(EmailOutcome.DUPLICATE, null);
         }
 
+        // Order-confirmation email (no tracking number yet): create a placeholder card
+        // that is upgraded to full tracking when the shipped email arrives.
+        if (!parsed.hasTracking()) {
+            if (parsed.cancelled()) {
+                return cancelMatchingOrder(user, parsed, email, domain);
+            }
+            return upsertConfirmation(user, parsed, email, domain);
+        }
+
+        // Cancellation email with a tracking/order number: close that order.
+        if (parsed.cancelled()) {
+            return cancelMatchingOrder(user, parsed, email, domain);
+        }
+
         Optional<Order> existing = orders
                 .findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(user.getId(), parsed.trackingNumber());
+
+        // Shipping email for an order we already track as a confirmation placeholder:
+        // merge the tracking number into the existing card instead of duplicating it.
+        if (existing.isEmpty()) {
+            Optional<Order> pending = orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(
+                    user.getId(), TrackingMode.EMAIL_PENDING);
+            if (pending.isPresent() && pending.get().getPlatform() == parsed.platform()) {
+                return upgradePendingOrder(pending.get(), parsed, email, domain);
+            }
+        }
 
         Order order = existing.orElseGet(Order::new);
         boolean created = existing.isEmpty();
@@ -95,6 +119,7 @@ public class OrderService {
             order.getEvents().add(new OrderEvent("Order email received from " + domain, null, Instant.now()));
         } else {
             if (parsed.status() != null) order.setStatus(parsed.status());
+            if (order.getStatus() == OrderStatus.CANCELLED) order.setRisk(null);
             order.getEvents().add(new OrderEvent(
                     "Status email received from " + domain + (parsed.delayed() ? " (retailer reported a delay)" : ""),
                     null, Instant.now()));
@@ -106,7 +131,11 @@ public class OrderService {
             order.setDeliveredAt(Instant.now());
         }
         order.setLastUpdated(Instant.now());
-        computeRisk(order);
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            order.setRisk(null); // terminal: no delay risk on a cancelled order
+        } else {
+            computeRisk(order);
+        }
         orders.save(order);
 
         String summary = created
@@ -122,6 +151,99 @@ public class OrderService {
         log.info("Email from {} -> {} order {}", domain, created ? "created" : "updated",
                 Mask.tracking(order.getTrackingNumber()));
         return new EmailResult(created ? EmailOutcome.CREATED : EmailOutcome.UPDATED, order);
+    }
+
+    /** Cancellation email: mark the matching order (or pending placeholder) CANCELLED. */
+    private EmailResult cancelMatchingOrder(User user, ParsedEmail parsed, RawEmail email, String domain) {
+        Optional<Order> target = parsed.hasTracking()
+                ? orders.findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(user.getId(), parsed.trackingNumber())
+                : Optional.empty();
+        // No AWB on the cancellation mail (common): cancel the newest pending confirmation
+        // for the same platform — a just-placed order cancelled before shipping.
+        if (target.isEmpty()) {
+            target = orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(
+                    user.getId(), TrackingMode.EMAIL_PENDING)
+                    .filter(o -> o.getPlatform() == parsed.platform() && o.getStatus() != OrderStatus.CANCELLED);
+        }
+        if (target.isEmpty()) {
+            audit.record(user.getId(), domain, AuditAction.IGNORED_NO_TRACKING,
+                    "Cancellation email but no matching order on this account");
+            return new EmailResult(EmailOutcome.UPDATED, null);
+        }
+
+        Order order = target.get();
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            audit.record(user.getId(), domain, AuditAction.DUPLICATE,
+                    "Order already cancelled (" + Mask.tracking(order.getTrackingNumber()) + ")");
+            return new EmailResult(EmailOutcome.DUPLICATE, order);
+        }
+        order.setStatus(OrderStatus.CANCELLED);
+        order.getEvents().add(new OrderEvent("Order cancelled — cancellation email received from " + domain, null, Instant.now()));
+        order.setLastUpdated(Instant.now());
+        order.setRisk(null); // terminal: no delay risk on a cancelled order
+        orders.save(order);
+        audit.record(user.getId(), domain, AuditAction.PROCESSED,
+                "Order " + Mask.tracking(order.getTrackingNumber()) + " marked CANCELLED from " + domain + " email");
+        log.info("Email from {} -> order {} cancelled", domain, Mask.tracking(order.getTrackingNumber()));
+        return new EmailResult(EmailOutcome.UPDATED, order);
+    }
+
+    /** Confirmation email ("order placed", no AWB yet) -> placeholder card shown as Ordered. */
+    private EmailResult upsertConfirmation(User user, ParsedEmail parsed, RawEmail email, String domain) {
+        // Latest pending placeholder wins: if several confirmations stack up, promote the
+        // newest one so the next shipping email upgrades the order the user just placed.
+        Optional<Order> pending = orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(
+                user.getId(), TrackingMode.EMAIL_PENDING);
+        if (pending.isPresent() && pending.get().getPlatform() == parsed.platform()) {
+            Order p = pending.get();
+            p.setSourceMessageId(email.messageId());
+            p.getEvents().add(new OrderEvent("Order confirmation received from " + domain, null, Instant.now()));
+            if (parsed.estimatedDelivery() != null) p.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
+            p.setLastUpdated(Instant.now());
+            orders.save(p);
+            audit.record(user.getId(), domain, AuditAction.PROCESSED,
+                    "Order confirmation from " + domain + " (tracking number not issued yet)");
+            return new EmailResult(EmailOutcome.UPDATED, p);
+        }
+
+        Order order = new Order();
+        order.setUserId(user.getId());
+        order.setPlatform(parsed.platform());
+        order.setTrackingNumber("PENDING-" + System.currentTimeMillis());
+        order.setTrackingMode(TrackingMode.EMAIL_PENDING);
+        order.setSource(OrderSource.EMAIL);
+        order.setSourceMessageId(email.messageId());
+        order.setStatus(OrderStatus.ORDERED);
+        if (parsed.estimatedDelivery() != null) order.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
+        order.getEvents().add(new OrderEvent("Order placed — confirmation email received from " + domain, null, Instant.now()));
+        order.setLastUpdated(Instant.now());
+        orders.save(order);
+        audit.record(user.getId(), domain, AuditAction.PROCESSED,
+                "Order confirmation from " + domain + " (tracking number not issued yet)");
+        log.info("Email from {} -> confirmation placeholder order", domain);
+        return new EmailResult(EmailOutcome.CREATED, order);
+    }
+
+    /** Shipping email arrived for a confirmation placeholder: attach the real tracking number. */
+    private EmailResult upgradePendingOrder(Order pending, ParsedEmail parsed, RawEmail email, String domain) {
+        pending.setTrackingNumber(parsed.trackingNumber());
+        pending.setCourier(parsed.courier());
+        // Amazon TBA/order ids cannot go to third-party APIs: email-only mode.
+        pending.setTrackingMode(parsed.platform() == Platform.AMAZON ? TrackingMode.EMAIL_ONLY : TrackingMode.API);
+        pending.setSourceMessageId(email.messageId());
+        if (parsed.status() != null && parsed.status() != OrderStatus.ORDERED) pending.setStatus(parsed.status());
+        if (parsed.estimatedDelivery() != null) pending.setEstimatedDelivery(etaInstant(parsed.estimatedDelivery()));
+        pending.getEvents().add(new OrderEvent(
+                "Tracking number issued — now tracked via " + (parsed.courier() != null ? parsed.courier() : "email") + (parsed.delayed() ? " (retailer reported a delay)" : ""),
+                null, Instant.now()));
+        pending.setLastUpdated(Instant.now());
+        computeRisk(pending);
+        orders.save(pending);
+        audit.record(pending.getUserId(), domain, AuditAction.PROCESSED,
+                "Extracted AWB ending " + last4(parsed.trackingNumber()) + " from " + domain
+                        + " — order now fully tracked");
+        log.info("Email from {} -> upgraded pending order with AWB {}", domain, Mask.tracking(parsed.trackingNumber()));
+        return new EmailResult(EmailOutcome.UPDATED, pending);
     }
 
     // ---------- CRUD ----------

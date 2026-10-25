@@ -13,6 +13,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -30,6 +31,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("demo")
+// Force the demo OTP sender so a developer's local .env (fast2sms key, sender=sms)
+// cannot make this context send real SMS during signup. app.otp.fixed stays pinned
+// by the demo profile, so registration with 123456 still works.
+@TestPropertySource(properties = "app.otp.sender=demo")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class GmailPipelineTest {
 
