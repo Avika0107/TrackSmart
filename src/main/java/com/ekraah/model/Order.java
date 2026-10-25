@@ -26,6 +26,7 @@ public class Order {
     private List<OrderEvent> events = new ArrayList<>();
     private RiskInfo risk;
     private Instant deliveredAt;
+    private String retailerOrderId;        // retailer's own id (OD…, 402-…), when known
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -57,4 +58,6 @@ public class Order {
     public void setRisk(RiskInfo risk) { this.risk = risk; }
     public Instant getDeliveredAt() { return deliveredAt; }
     public void setDeliveredAt(Instant deliveredAt) { this.deliveredAt = deliveredAt; }
+    public String getRetailerOrderId() { return retailerOrderId; }
+    public void setRetailerOrderId(String retailerOrderId) { this.retailerOrderId = retailerOrderId; }
 }

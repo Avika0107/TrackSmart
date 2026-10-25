@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "EkRaah — Send order to tracker",
+  "short_name": "EkRaah",
+  "version": "0.1.0",
+  "description": "Send the tracking number from a retailer's order page to your EkRaah dashboard. Reads a page only when you click the icon.",
+
+  "permissions": ["activeTab", "scripting", "storage"],
+
+  "host_permissions": ["http://localhost:8080/*"],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_title": "Send this order to EkRaah",
+    "default_popup": "popup.html"
+  },
+
+  "minimum_chrome_version": "102"
+}

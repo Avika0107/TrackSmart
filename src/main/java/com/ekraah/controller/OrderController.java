@@ -1,6 +1,8 @@
 package com.ekraah.controller;
 
 import com.ekraah.dto.OrderDtos.CreateOrderRequest;
+import com.ekraah.dto.OrderDtos.ImportOrderRequest;
+import com.ekraah.dto.OrderDtos.ImportOrderResponse;
 import com.ekraah.dto.OrderDtos.OrderDetailResponse;
 import com.ekraah.model.Order;
 import com.ekraah.model.OrderStatus;
@@ -64,6 +66,16 @@ public class OrderController {
                                      @Valid @RequestBody CreateOrderRequest body) {
         Order order = orders.addManual(userId, body.trackingNumber(), body.platform());
         return ResponseEntity.status(HttpStatus.CREATED).body(order);
+    }
+
+    @PostMapping("/import")
+    @Operation(summary = "Import an order read by the browser extension from a retailer's order page")
+    public ResponseEntity<ImportOrderResponse> importOrder(@AuthenticationPrincipal String userId,
+                                                           @Valid @RequestBody ImportOrderRequest body) {
+        var result = orders.importFromExtension(userId, body.platform(), body.trackingNumber(),
+                body.courierHint(), body.retailerOrderId());
+        HttpStatus status = result.outcome() == OrderService.ImportOutcome.CREATED ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status).body(new ImportOrderResponse(result.outcome().name(), result.order()));
     }
 
     @DeleteMapping("/{id}")

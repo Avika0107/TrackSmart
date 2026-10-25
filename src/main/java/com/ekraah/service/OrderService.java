@@ -292,6 +292,87 @@ public class OrderService {
         return orders.save(order);
     }
 
+    // ---------- Browser extension import ----------
+
+    public enum ImportOutcome { CREATED, UPDATED, ALREADY_TRACKED }
+
+    public record ImportResult(ImportOutcome outcome, Order order) {}
+
+    /** Couriers whose AWBs are plain digits and overlap by length (see CourierDetector). */
+    private static final java.util.Set<String> DIGIT_COURIERS = java.util.Set.of("Blue Dart", "Delhivery", "Xpressbees");
+
+    /**
+     * Facts read by the extension from a retailer's order page. Idempotent: sending the same
+     * order twice returns the existing card. Merges into an EMAIL_PENDING placeholder of the
+     * same platform, like the shipping email would. The server re-validates the number itself.
+     */
+    public ImportResult importFromExtension(String userId, Platform platform, String trackingNumber,
+                                            String courierHint, String retailerOrderId) {
+        String number = trackingNumber.trim().toUpperCase(Locale.ROOT);
+        String courier = resolveCourier(number, courierHint)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                        "That doesn't look like a tracking number we support yet."));
+        String source = "browser extension (" + platform.name().toLowerCase(Locale.ROOT) + ")";
+
+        Optional<Order> existing = orders.findFirstByUserIdAndTrackingNumberOrderByLastUpdatedDesc(userId, number);
+        if (existing.isPresent()) {
+            audit.record(userId, source, AuditAction.DUPLICATE,
+                    "Already tracking " + Mask.tracking(number) + " — extension import skipped");
+            return new ImportResult(ImportOutcome.ALREADY_TRACKED, existing.get());
+        }
+
+        Optional<Order> pending = orders.findFirstByUserIdAndTrackingModeOrderByLastUpdatedDesc(
+                userId, TrackingMode.EMAIL_PENDING)
+                .filter(o -> o.getPlatform() == platform && o.getStatus() != OrderStatus.CANCELLED);
+        boolean created = pending.isEmpty();
+
+        Order order = pending.orElseGet(Order::new);
+        if (created) {
+            order.setUserId(userId);
+            order.setPlatform(platform);
+            order.setSource(OrderSource.EXTENSION);
+            order.setStatus(OrderStatus.SHIPPED);   // a tracking number on the page means it shipped
+            order.getEvents().add(new OrderEvent("Imported from the " + platform + " order page via browser extension",
+                    null, Instant.now()));
+        } else {
+            order.getEvents().add(new OrderEvent("Tracking number added from the " + platform
+                    + " order page via browser extension", null, Instant.now()));
+        }
+        order.setTrackingNumber(number);
+        order.setCourier(courier);
+        if (retailerOrderId != null && !retailerOrderId.isBlank()) order.setRetailerOrderId(retailerOrderId.trim());
+        // Amazon TBA/order ids cannot go to third-party APIs: email-only mode.
+        order.setTrackingMode(courier.equals("Amazon") ? TrackingMode.EMAIL_ONLY : TrackingMode.API);
+        if (order.getStatus() == OrderStatus.ORDERED) order.setStatus(OrderStatus.SHIPPED);
+
+        if (order.getTrackingMode() == TrackingMode.API) {
+            applyTracking(order, tracking.track(number, courier));
+        }
+        order.setLastUpdated(Instant.now());
+        computeRisk(order);
+        Order saved = orders.save(order);
+
+        audit.record(userId, source, AuditAction.PROCESSED,
+                (created ? "Imported AWB ending " : "Added AWB ending ") + last4(number)
+                        + (created ? "" : " to a pending order") + " via browser extension");
+        log.info("Extension import -> {} order {}", created ? "created" : "upgraded pending", Mask.tracking(number));
+        return new ImportResult(created ? ImportOutcome.CREATED : ImportOutcome.UPDATED, saved);
+    }
+
+    /**
+     * The number's format decides; the page's courier name only breaks ties between the
+     * digit-only couriers (a 10-digit AWB is Blue Dart unless the page says Delhivery).
+     */
+    private static Optional<String> resolveCourier(String number, String courierHint) {
+        Optional<String> detected = CourierDetector.detect(number, null);
+        if (detected.isEmpty()) return Optional.empty();
+        String hint = courierHint == null ? "" : courierHint.trim();
+        if (number.matches("\\d+") && DIGIT_COURIERS.contains(detected.get()) && DIGIT_COURIERS.contains(hint)) {
+            return Optional.of(hint);
+        }
+        return detected;
+    }
+
     public void delete(String userId, String orderId) {
         Order order = getOwned(userId, orderId);
         orders.delete(order);

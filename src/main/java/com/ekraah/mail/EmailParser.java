@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  *
  * Per-courier AWB assumptions (documented in README):
  *  - Amazon: TBA########## or 171-#######-####### (EMAIL_ONLY, never sent to APIs)
- *  - Ekart (Flipkart): FMP########
+ *  - Ekart (Flipkart): FMP######## (also FMPC… / FMPP…)
  *  - Shadowfax: SF#########
  *  - India Post: RR123456789IN (13 chars ending IN)
  *  - Blue Dart: 10 digits; Delhivery: 10-18 digits; Xpressbees: 12-15 digits.
@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
 public class EmailParser {
 
     private static final Pattern AMAZON = Pattern.compile("\\b(TBA\\d{9,15}|\\d{3}-\\d{7}-\\d{7})\\b");
-    private static final Pattern EKART = Pattern.compile("\\b(FMP\\d{6,12})\\b");
+    private static final Pattern EKART = Pattern.compile("\\b(FMP[CP]?\\d{6,12})\\b");
     private static final Pattern SHADOWFAX = Pattern.compile("\\b(SF\\d{9,15})\\b");
     private static final Pattern INDIA_POST = Pattern.compile("\\b([A-Z]{2}\\d{9}IN)\\b");
     private static final Pattern DIGITS = Pattern.compile("\\b(\\d{10,18})\\b");
