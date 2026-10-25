@@ -2,6 +2,7 @@ package com.ekraah.config;
 
 import com.ekraah.model.Alert;
 import com.ekraah.model.AuditLog;
+import com.ekraah.model.Session;
 import com.ekraah.model.Order;
 import com.ekraah.model.User;
 import org.slf4j.Logger;
@@ -63,6 +64,11 @@ public class MongoConfig {
         ensure(mongo, Alert.class, "alerts(userId,trackingNumber,kind,createdAt)",   // AlertService dedupe
                 new Index().on("userId", Sort.Direction.ASC).on("trackingNumber", Sort.Direction.ASC)
                         .on("kind", Sort.Direction.ASC).on("createdAt", Sort.Direction.DESC));
+        ensure(mongo, Session.class, "sessions(tokenHash) unique",
+                new Index().on("tokenHash", Sort.Direction.ASC).unique());
+        ensure(mongo, Session.class, "sessions(previousTokenHash)",   // refresh-token reuse detection
+                new Index().on("previousTokenHash", Sort.Direction.ASC));
+        ensure(mongo, Session.class, "sessions(userId)", new Index().on("userId", Sort.Direction.ASC));
         log.info("MongoDB index check finished");
     }
 

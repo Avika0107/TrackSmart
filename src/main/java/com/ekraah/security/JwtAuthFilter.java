@@ -21,20 +21,25 @@ import java.util.function.Predicate;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwt;
-    private final Predicate<String> userExists;
+    private final Predicate<JwtService.AccessToken> sessionActive;
 
     public JwtAuthFilter(JwtService jwt) {
-        this(jwt, userId -> true);
+        this(jwt, token -> true);
     }
 
     /**
-     * @param userExists checked after the signature: a JWT stays valid until it expires, so
-     *                   without this a deleted account (DELETE /api/me) could keep using its token
-     *                   and recreate data for a user that no longer exists.
+     * @param sessionActive checked after the signature, on every request: the token's server-side
+     *                      session must still be active, so logout, password reset and account
+     *                      deletion (which revoke or delete sessions) take effect immediately.
      */
-    public JwtAuthFilter(JwtService jwt, Predicate<String> userExists) {
+    public JwtAuthFilter(JwtService jwt, Predicate<JwtService.AccessToken> sessionActive) {
         this.jwt = jwt;
-        this.userExists = userExists;
+        this.sessionActive = sessionActive;
+    }
+
+    /** Extension tokens can only send orders; a stolen one can't read or delete the account. */
+    static boolean allowedForExtension(HttpServletRequest request) {
+        return "POST".equals(request.getMethod()) && "/api/orders/import".equals(request.getRequestURI());
     }
 
     @Override
@@ -49,10 +54,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
             try {
-                String userId = jwt.verify(header.substring(7));
-                if (!userExists.test(userId)) throw new IllegalStateException("account deleted");
+                JwtService.AccessToken token = jwt.verifyAccess(header.substring(7));
+                if (!sessionActive.test(token)) throw new IllegalStateException("session revoked or expired");
+                if (JwtService.SCOPE_EXTENSION.equals(token.scope()) && !allowedForExtension(request)) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.getWriter().write("{\"error\":\"The extension's login can only send orders.\"}");
+                    return;
+                }
                 var auth = new UsernamePasswordAuthenticationToken(
-                        userId, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+                        token.userId(), null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
                 SecurityContextHolder.getContext().setAuthentication(auth);
             } catch (Exception e) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
